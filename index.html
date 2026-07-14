@@ -226,6 +226,12 @@
   .detail-wrap table.data-table { margin: 0; font-size: 12px; }
   .detail-filter { margin-bottom: 6px; font-size: 12px; color: #555; }
   .detail-filter select { border: 1px solid #D5D9E0; border-radius: 4px; padding: 4px 6px; font-size: 12px; max-width: 320px; }
+
+  /* v2.4: 판매대행 등록현황 배지 */
+  .badge-efin { color: var(--main); border: 1px solid var(--main); border-radius: 4px; padding: 1px 6px; font-size: 11px; white-space: nowrap; }
+  .badge-vatcomm { color: #7A6420; border: 1px solid #C5A44E; border-radius: 4px; padding: 1px 6px; font-size: 11px; white-space: nowrap; }
+  .badge-efin-cancel { color: #fff; background: var(--danger); border-radius: 4px; padding: 1px 6px; font-size: 11px; white-space: nowrap; }
+  .badge-unknown { color: #fff; background: #C5A44E; border-radius: 4px; padding: 1px 6px; font-size: 11px; white-space: nowrap; }
   @media print {
     .detail-wrap { max-height: none; overflow: visible; border: none; }
     .detail-filter { display: none; }
@@ -765,6 +771,42 @@ function computeCardIssuanceCredit(params) {
 
   return { creditAmount: creditAmount, remainingLimit: remainingLimit, applied: applied, overLimit: overLimit };
 }
+
+// ============================================================
+// v2.4: 판매대행 등록현황 대조 (전자금융업·부가통신사업자)
+// 데이터: efin-reg-lookup data.json — 홈택스 판매대행 업체가 등록업체인지 배지 표시
+// ============================================================
+
+function normalizeCorpName(name) {
+  var s = String(name === null || name === undefined ? '' : name);
+  s = s.replace(/\([A-Za-z][^)]*\)|（[A-Za-z][^）]*）/g, '');  // 영문 병기 괄호 제거
+  s = s.replace(/\(주\)|（주）|㈜|주식회사|\(유\)|（유）|유한회사|유한책임회사|舊/g, '');
+  s = s.replace(/[\s.,·()（）]/g, '');
+  return s.toLowerCase();
+}
+
+function buildRegistryIndex(data) {
+  function toSet(arr) {
+    var set = {};
+    (arr || []).forEach(function (n) {
+      var k = normalizeCorpName(n);
+      if (k) set[k] = true;
+    });
+    return set;
+  }
+  return {
+    vat: toSet(data.vat),
+    efinReg: toSet(data.efin_reg),
+    efinCancel: toSet(data.efin_cancel),
+  };
+}
+
+function lookupAgencyRegistry(name, index) {
+  var k = normalizeCorpName(name);
+  var efin = index.efinReg[k] ? 'reg' : (index.efinCancel[k] ? 'cancel' : null);
+  var vatComm = !!index.vat[k];
+  return { efin: efin, vatComm: vatComm, unknown: !efin && !vatComm };
+}
 </script>
 
 <!-- ============================================================
@@ -1196,11 +1238,44 @@ function computeCardIssuanceCredit(params) {
   }
 
   // ---- 3A: 홈택스 판매대행 매출자료 파싱 ----
+  // v2.4: 등록현황 데이터 (efin-reg-lookup data.json) — 최초 파싱 시 1회 lazy fetch
+  var REGISTRY_URL = 'https://deoksutax777-ctrl.github.io/efin-reg-lookup/data.json';
+  var registryState = { status: 'idle', index: null, meta: null };
+
+  function ensureRegistry(onDone) {
+    if (registryState.status === 'ok' || registryState.status === 'loading') return;
+    if (typeof fetch !== 'function') { registryState.status = 'fail'; return; }
+    registryState.status = 'loading';
+    fetch(REGISTRY_URL).then(function (res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    }).then(function (data) {
+      registryState = { status: 'ok', index: buildRegistryIndex(data), meta: { vat_asof: data.vat_asof, efin_asof: data.efin_asof } };
+      if (onDone) onDone();
+    }).catch(function () {
+      registryState.status = 'fail';
+      if (onDone) onDone();
+    });
+  }
+
+  function registryBadgesHtml(name) {
+    if (registryState.status === 'loading') return '<span class="badge-skip">조회 중…</span>';
+    if (registryState.status !== 'ok') return '<span class="badge-skip">조회 불가</span>';
+    var r = lookupAgencyRegistry(name, registryState.index);
+    var out = [];
+    if (r.efin === 'reg') out.push('<span class="badge-efin">전금업</span>');
+    else if (r.efin === 'cancel') out.push('<span class="badge-efin-cancel">전금업 말소</span>');
+    if (r.vatComm) out.push('<span class="badge-vatcomm">부가통신</span>');
+    if (r.unknown) out.push('<span class="badge-unknown">미확인</span>');
+    return out.join(' ');
+  }
+
   $('btnParseHometax').addEventListener('click', function () {
     var text = $('hometaxPasteArea').value;
     var result = parseHometaxAgency(text);
     state.hometax = result;
     rebuildAgencyRowsFromHometax(result);
+    ensureRegistry(function () { if (state.hometax) renderHometaxParseResult(state.hometax); });
     renderHometaxParseResult(result);
     renderAgencyTable();
     computeAndRenderSalesRecon();
@@ -1214,12 +1289,18 @@ function computeCardIssuanceCredit(params) {
       var a = result.byAgency[name];
       var alias = resolveAgencyAlias(name).alias;
       return '<tr><td>' + escapeHtml(name) + '</td><td>' + escapeHtml(alias) + '</td>' +
-        numCell(a.count) + numCell(a.card) + numCell(a.etc) + '</tr>';
+        numCell(a.count) + numCell(a.card) + numCell(a.etc) +
+        '<td>' + registryBadgesHtml(name) + '</td></tr>';
     }).join('');
-    var html = '<table class="data-table"><thead><tr><th>대행업체</th><th>별칭</th><th class="num">건수</th><th class="num">신용카드</th><th class="num">기타결제수단</th></tr></thead>' +
-      '<tbody>' + (rowsHtml || '<tr><td colspan="5">인식된 업체 없음</td></tr>') + '</tbody></table>';
+    var html = '<table class="data-table"><thead><tr><th>대행업체</th><th>별칭</th><th class="num">건수</th><th class="num">신용카드</th><th class="num">기타결제수단</th><th>등록현황</th></tr></thead>' +
+      '<tbody>' + (rowsHtml || '<tr><td colspan="6">인식된 업체 없음</td></tr>') + '</tbody></table>';
     html += '<div class="meta-line">인식 데이터 행 ' + result.rows.length + '건';
     if (result.skipped > 0) html += ' · <span class="neg">인식 실패 ' + result.skipped + '건</span>';
+    if (registryState.status === 'ok') {
+      html += ' · 등록현황 기준: 부가통신 ' + escapeHtml(registryState.meta.vat_asof || '') + ' / 전금업 ' + escapeHtml(registryState.meta.efin_asof || '');
+    } else if (registryState.status === 'fail') {
+      html += ' · <span class="neg">등록현황 조회 실패 (오프라인이면 정상 — 배지 없이 진행)</span>';
+    }
     html += '</div>';
     box.innerHTML = html;
   }
