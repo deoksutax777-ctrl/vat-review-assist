@@ -353,3 +353,15 @@ const res = await fetch('https://api.anthropic.com/v1/messages', {
 - **매칭**: `normalizeCorpName` — 영문 병기 괄호 제거 → ㈜/(주)/（주）/주식회사/유한회사 등 제거 → 공백·구두점 제거 → lowercase. 양쪽 모두 정규화 후 정확 일치.
 - **배지** (3A 등록현황 컬럼): 등록 우선 — `전금업`(등록) / `전금업 말소`(등록에 없고 말소에만) / `부가통신` / 둘 다 없으면 `미확인`(골드 경고 = 검토 포인트). fetch 실패·fetch 미지원 환경은 `조회 불가`로 열화, 기능 나머지는 정상.
 - 순수 함수(`normalizeCorpName`, `buildRegistryIndex`, `lookupAgencyRegistry`)는 parser-core 블록. 검증: 하니스 registry_test.cjs — 정규화 7케이스, 실데이터 매칭 7케이스(쿠팡=말소, 하고하우스=미확인 포함), fetch 스텁 e2e·fetch 부재 열화.
+
+---
+
+## 11. v2.5 확장 — 과세기간 필터
+
+장부에 과세기간 외 전표가 섞이면 집계·대사·계산기 디폴트·AI 대상이 전부 왜곡되던 공백을 해소.
+
+- **파이프라인**: `state.ledgerRaw`(parseLedger 원본) → `filterLedgerByPeriod(원본, 기간문자열)` → `state.ledger`(필터본). 하류 전체는 기존처럼 `state.ledger`만 사용 — 하류 코드 무변경.
+- **기간 창**: 1기 예정 1/1~3/31 · 1기 확정 1/1~6/30 · 2기 예정 7/1~9/30 · 2기 확정 7/1~12/31. 확정=반기 전체 창(예정고지 개인 포함, 법인 4~6월 장부도 창 안이라 오탐 없음).
+- **자동 인식**: 업로드 시 `detectLedgerPeriod`(날짜 다수결 반기 판정, 확정으로 세팅)가 헤더 select를 설정. 수동 변경 시 재필터 + 장부 파생 화면 전체 갱신(홈택스·판매대행 입력은 유지). initPeriodSelect 기본값 = 오늘 기준 직전 신고대상 기간.
+- **표시**: STEP1에 필터 범위·기간 외 제외 n건(공급가액 합)·날짜 미인식 n건(보수적으로 **포함** — 조용한 누락 금지). 제외가 전체의 절반 초과 시 과세기간 오설정 경고 박스.
+- 순수 함수(`periodToRange`, `aggregateLedgerRows`, `filterLedgerByPeriod`, `detectLedgerPeriod`)는 parser-core. parseLedger는 무변경. 검증: period_filter_test.cjs 26케이스 — 위하고 샘플의 기간 외 1건(7/2, 2,200,000) 제외 확인 포함.

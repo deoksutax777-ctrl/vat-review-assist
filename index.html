@@ -807,6 +807,76 @@ function lookupAgencyRegistry(name, index) {
   var vatComm = !!index.vat[k];
   return { efin: efin, vatComm: vatComm, unknown: !efin && !vatComm };
 }
+
+// ============================================================
+// v2.5: 과세기간 필터 — 장부에 기간 외 전표가 섞이면 집계 전체가 왜곡되므로
+// 기간 창으로 거른 결과를 하류(집계·대사·계산기·AI)에 공급한다.
+// ============================================================
+
+// '2026년 1기 확정' → ['2026-01-01','2026-06-30']. 확정은 반기 전체 창(예정고지 개인 포함, 법인 4~6월 장부도 창 안).
+function periodToRange(periodStr) {
+  var m = /^(\d{4})년\s*(1기|2기)\s*(예정|확정)$/.exec(String(periodStr || '').trim());
+  if (!m) return null;
+  var y = m[1];
+  if (m[2] === '1기') return m[3] === '예정' ? [y + '-01-01', y + '-03-31'] : [y + '-01-01', y + '-06-30'];
+  return m[3] === '예정' ? [y + '-07-01', y + '-09-30'] : [y + '-07-01', y + '-12-31'];
+}
+
+// parseLedger와 동일한 집계 규칙 (code < 50 → 매출)
+function aggregateLedgerRows(rows) {
+  var byType = {};
+  var totals = { sales: { count: 0, amount: 0, tax: 0 }, purchases: { count: 0, amount: 0, tax: 0 } };
+  rows.forEach(function (r) {
+    if (!byType[r.typeCode]) byType[r.typeCode] = { count: 0, amount: 0, tax: 0 };
+    byType[r.typeCode].count += 1;
+    byType[r.typeCode].amount += r.amount;
+    byType[r.typeCode].tax += r.tax;
+    var b = (r.typeCode < 50) ? totals.sales : totals.purchases;
+    b.count += 1;
+    b.amount += r.amount;
+    b.tax += r.tax;
+  });
+  return { byType: byType, totals: totals };
+}
+
+// 날짜 미인식 행은 보수적으로 포함(제외하면 조용한 누락) — 건수만 보고
+function filterLedgerByPeriod(result, periodStr) {
+  var range = periodToRange(periodStr);
+  if (!range) {
+    return { ledger: result, filtered: false, excluded: { count: 0, amount: 0 }, noDate: 0, range: null };
+  }
+  var kept = [], excludedCount = 0, excludedAmount = 0, noDate = 0;
+  result.rows.forEach(function (r) {
+    var d = String(r.date || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) { noDate++; kept.push(r); return; }
+    if (d >= range[0] && d <= range[1]) kept.push(r);
+    else { excludedCount++; excludedAmount += r.amount || 0; }
+  });
+  var agg = aggregateLedgerRows(kept);
+  return {
+    ledger: { dialect: result.dialect, headerRowIndex: result.headerRowIndex, rows: kept, byType: agg.byType, totals: agg.totals },
+    filtered: true,
+    excluded: { count: excludedCount, amount: excludedAmount },
+    noDate: noDate,
+    range: range,
+  };
+}
+
+// 장부 날짜 다수결로 과세기간 자동 인식 → '2026년 1기 확정' 형식 (예정/확정 구분은 불가 — 확정이 안전한 상위 창)
+function detectLedgerPeriod(rows) {
+  var counts = {};
+  rows.forEach(function (r) {
+    var m = /^(\d{4})-(\d{2})/.exec(String(r.date || ''));
+    if (!m) return;
+    var key = m[1] + '년 ' + ((+m[2] <= 6) ? '1기' : '2기') + ' 확정';
+    counts[key] = (counts[key] || 0) + 1;
+  });
+  var best = null, bestN = 0;
+  Object.keys(counts).forEach(function (k) {
+    if (counts[k] > bestN) { best = k; bestN = counts[k]; }
+  });
+  return best;
+}
 </script>
 
 <!-- ============================================================
@@ -884,7 +954,11 @@ function lookupAgencyRegistry(name, index) {
 
   // ---- 상태 ----
   var state = {
-    ledger: null,       // parseLedger() 결과
+    ledger: null,       // 과세기간 필터 적용된 장부 (하류 전체가 사용)
+    ledgerRaw: null,    // v2.5: parseLedger() 원본 결과
+    fileName: '',       // v2.5: 업로드 파일명 (기간 변경 재렌더용)
+    periodFilter: null, // v2.5: filterLedgerByPeriod() 결과 메타
+    periodAutoSet: false, // v2.5: 과세기간이 장부에서 자동 인식됐는지
     reconResults: [],   // STEP2 계산 결과
     aiResult: null,      // STEP4 API 응답 파싱 결과
     aiTruncated: false,
@@ -924,7 +998,33 @@ function lookupAgencyRegistry(name, index) {
       });
     });
     sel.innerHTML = opts.map(function (o) { return '<option value="' + o + '">' + o + '</option>'; }).join('');
+    // v2.5: 오늘 기준 직전 신고대상 기간을 기본값으로 (업로드 시 장부에서 자동 인식되면 덮어씀)
+    var m = new Date().getMonth() + 1;
+    var def;
+    if (m <= 3) def = (yearNow - 1) + '년 2기 확정';
+    else if (m <= 6) def = yearNow + '년 1기 예정';
+    else if (m <= 9) def = yearNow + '년 1기 확정';
+    else def = yearNow + '년 2기 예정';
+    sel.value = def;
   }
+
+  // v2.5: 과세기간 수동 변경 → 재필터 + 장부 파생 화면 전체 갱신 (홈택스·판매대행 입력은 유지)
+  $('period').addEventListener('change', function () {
+    if (!state.ledgerRaw) return;
+    state.periodAutoSet = false;
+    var pf = filterLedgerByPeriod(state.ledgerRaw, $('period').value);
+    state.periodFilter = pf;
+    state.ledger = pf.ledger;
+    renderStep1(state.ledger, state.fileName);
+    computeAndRenderRecon();
+    setDeemedDefaults();
+    computeAndRenderDeemed();
+    setCardCreditDefaults();
+    computeAndRenderCardCredit();
+    computeAndRenderSalesRecon();
+    updateCostEstimate();
+    renderSummary();
+  });
 
   // ---- 설정 모달 (API 키) ----
   var LS_KEY = 'vat2_api_key';
@@ -982,8 +1082,19 @@ function lookupAgencyRegistry(name, index) {
         var ws = wb.Sheets[wsName];
         var rows2D = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
         var result = parseLedger(rows2D);
-        state.ledger = result;
-        renderStep1(result, file.name);
+        state.ledgerRaw = result;
+        state.fileName = file.name;
+        // v2.5: 장부 날짜에서 과세기간 자동 인식 → 헤더 select 세팅 (수동 변경 가능)
+        state.periodAutoSet = false;
+        var detected = detectLedgerPeriod(result.rows);
+        if (detected && $('period').querySelector('option[value="' + detected + '"]')) {
+          $('period').value = detected;
+          state.periodAutoSet = true;
+        }
+        var pf = filterLedgerByPeriod(result, $('period').value);
+        state.periodFilter = pf;
+        state.ledger = pf.ledger;
+        renderStep1(state.ledger, file.name);
         $('step2Card').style.display = '';
         $('step3Card').style.display = '';
         $('summaryCard').style.display = '';
@@ -1028,6 +1139,23 @@ function lookupAgencyRegistry(name, index) {
     var html = '';
     html += '<div class="meta-line">파일: ' + escapeHtml(fileName) + '</div>';
     html += '<div class="meta-line">판정 형식(dialect): <b>' + dialectLabel(result.dialect) + '</b> · 총 행수: <b>' + result.rows.length + '건</b> · 날짜 범위: <b>' + dateRange + '</b></div>';
+
+    // v2.5: 과세기간 필터 정보
+    var pf = state.periodFilter;
+    if (pf && pf.filtered) {
+      var line = '과세기간 필터' + (state.periodAutoSet ? '(장부에서 자동 인식)' : '') + ': ' + pf.range[0] + ' ~ ' + pf.range[1];
+      if (pf.excluded.count > 0) {
+        line += ' · <span class="neg">기간 외 ' + pf.excluded.count + '건 제외 (공급가액 ' + fmtNum(pf.excluded.amount) + ')</span>';
+      } else {
+        line += ' · 기간 외 행 없음';
+      }
+      if (pf.noDate > 0) line += ' · <span class="neg">날짜 미인식 ' + pf.noDate + '건 포함</span>';
+      html += '<div class="meta-line">' + line + '</div>';
+      if (state.ledgerRaw && state.ledgerRaw.rows.length > 0 && pf.excluded.count > state.ledgerRaw.rows.length / 2) {
+        html += '<div class="error-box">기간 외 제외가 전체의 절반을 넘습니다 — 헤더의 과세기간이 이 장부와 맞는지 확인하세요.</div>';
+      }
+    }
+
     html += '<div class="meta-line">유형 행을 클릭하면 세부 전표 내역이 펼쳐집니다.</div>';
 
     html += renderTypeSection('매출부', result.byType, result.totals.sales, function (c) { return c < 50; });
