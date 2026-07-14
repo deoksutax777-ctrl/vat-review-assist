@@ -224,8 +224,11 @@
   tr.type-detail-row > td.detail-cell { background: #FAFBFD; padding: 8px 10px 12px 26px; }
   .detail-wrap { max-height: 340px; overflow: auto; border: 1px solid #E2E6ED; border-radius: 6px; }
   .detail-wrap table.data-table { margin: 0; font-size: 12px; }
+  .detail-filter { margin-bottom: 6px; font-size: 12px; color: #555; }
+  .detail-filter select { border: 1px solid #D5D9E0; border-radius: 4px; padding: 4px 6px; font-size: 12px; max-width: 320px; }
   @media print {
     .detail-wrap { max-height: none; overflow: visible; border: none; }
+    .detail-filter { display: none; }
   }
 </style>
 </head>
@@ -1027,14 +1030,57 @@ function computeCardIssuanceCredit(params) {
     tr.classList.add('open');
   });
 
-  function buildTypeDetailHtml(code) {
-    var rows = state.ledger.rows.filter(function (r) { return r.typeCode === code; });
-    var body = rows.map(function (r) {
+  // 세부 필터 값 인코딩: '' = 전체, 'a:<계정과목>' = 해당 계정과목 (접두사로 이름 충돌 원천 차단)
+  function buildTypeDetailBody(code, filter) {
+    var acc = (filter && filter.indexOf('a:') === 0) ? filter.slice(2) : null;
+    var rows = state.ledger.rows.filter(function (r) {
+      return r.typeCode === code && (acc === null || (r.account || '') === acc);
+    });
+    var amount = 0, tax = 0, total = 0;
+    var bodyHtml = rows.map(function (r) {
+      amount += r.amount || 0; tax += r.tax || 0; total += r.total || 0;
       return '<tr><td>' + escapeHtml(r.date || '') + '</td><td>' + escapeHtml(r.vendor || '') + '</td><td>' + escapeHtml(r.item || '') + '</td><td>' + escapeHtml(r.account || '') + '</td>' +
         numCell(r.amount) + numCell(r.tax) + numCell(r.total) + '</tr>';
     }).join('');
-    return '<div class="detail-wrap"><table class="data-table"><thead><tr><th>일자</th><th>거래처</th><th>품목</th><th>계정과목</th><th class="num">공급가액</th><th class="num">부가세</th><th class="num">합계</th></tr></thead><tbody>' + body + '</tbody></table></div>';
+    if (!bodyHtml) bodyHtml = '<tr><td colspan="7">해당 없음</td></tr>';
+    return { bodyHtml: bodyHtml, count: rows.length, amount: amount, tax: tax, total: total };
   }
+
+  function detailSubtotalCells(res) {
+    return '<td colspan="4">소계 (' + res.count + '건)</td>' + numCell(res.amount) + numCell(res.tax) + numCell(res.total);
+  }
+
+  function buildTypeDetailHtml(code) {
+    var all = state.ledger.rows.filter(function (r) { return r.typeCode === code; });
+    var accCount = {}, accOrder = [];
+    all.forEach(function (r) {
+      var a = r.account || '';
+      if (!(a in accCount)) { accCount[a] = 0; accOrder.push(a); }
+      accCount[a]++;
+    });
+    accOrder.sort(function (a, b) { return a.localeCompare(b, 'ko'); });
+    var opts = '<option value="">전체 (' + all.length + '건)</option>' +
+      accOrder.map(function (a) {
+        return '<option value="' + escapeHtml('a:' + a) + '">' + (a === '' ? '(없음)' : escapeHtml(a)) + ' (' + accCount[a] + '건)</option>';
+      }).join('');
+    var res = buildTypeDetailBody(code, '');
+    return '<div class="detail-filter">계정과목 필터: <select class="detail-account-filter" data-code="' + code + '">' + opts + '</select></div>' +
+      '<div class="detail-wrap"><table class="data-table"><thead><tr><th>일자</th><th>거래처</th><th>품목</th><th>계정과목</th><th class="num">공급가액</th><th class="num">부가세</th><th class="num">합계</th></tr></thead>' +
+      '<tbody class="detail-tbody">' + res.bodyHtml + '</tbody>' +
+      '<tfoot><tr class="subtotal detail-subtotal-row">' + detailSubtotalCells(res) + '</tr></tfoot></table></div>';
+  }
+
+  // v2.3: 세부 내역 계정과목 필터 (위임 핸들러 1회 바인딩)
+  $('step1Result').addEventListener('change', function (ev) {
+    var sel = ev.target;
+    if (!sel || !sel.classList || !sel.classList.contains('detail-account-filter') || !state.ledger) return;
+    var code = Number(sel.getAttribute('data-code'));
+    var detail = $('step1Result').querySelector('tr.type-detail-row[data-detail-for="' + code + '"]');
+    if (!detail) return;
+    var res = buildTypeDetailBody(code, sel.value);
+    detail.querySelector('tbody.detail-tbody').innerHTML = res.bodyHtml;
+    detail.querySelector('tr.detail-subtotal-row').innerHTML = detailSubtotalCells(res);
+  });
 
   // ============================================================
   // STEP 2: 신고서 입력 + 간이 대사
