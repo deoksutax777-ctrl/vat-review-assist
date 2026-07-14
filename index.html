@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>부가세 신고서 결재 보조</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --main: #00338D;
+    --accent: #C5A44E;
+    --bg: #F5F6FA;
+    --danger: #C0392B;
+    --gray: #8A8F98;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: #22262E;
+    font-family: 'Malgun Gothic', 'Segoe UI', sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .container { max-width: 1200px; margin: 0 auto; padding: 0 20px 60px; }
+  header.topbar {
+    background: var(--main);
+    color: #fff;
+    border-bottom: 4px solid var(--accent);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header.topbar h1 { font-size: 20px; margin: 0; font-weight: 700; }
+  .gear-btn {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,.6);
+    color: #fff;
+    border-radius: 6px;
+    width: 36px; height: 36px;
+    font-size: 16px;
+    cursor: pointer;
+  }
+  .gear-btn:hover { background: rgba(255,255,255,.15); }
+
+  .card {
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 1px 6px rgba(0,0,0,.08);
+    padding: 22px 24px;
+    margin-top: 20px;
+  }
+  .card h2 {
+    font-size: 16px;
+    color: var(--main);
+    margin: 0 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--accent);
+  }
+  .card h3 { font-size: 14px; margin: 18px 0 8px; color: #333; }
+
+  .grid-form { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .field label { display: block; font-size: 12px; color: #555; margin-bottom: 4px; }
+  .field input[type=text], .field select {
+    width: 100%; padding: 8px 10px; border: 1px solid #D5D9E0; border-radius: 6px; font-size: 14px;
+    background: #fff;
+  }
+  .field.checkbox { display: flex; align-items: center; gap: 8px; margin-top: 22px; }
+
+  .dropzone {
+    border: 2px dashed #B9C2D0;
+    border-radius: 10px;
+    padding: 30px;
+    text-align: center;
+    color: #667;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .dropzone.dragover { border-color: var(--main); background: #EEF2FA; }
+  .dropzone .browse-btn {
+    display: inline-block; margin-top: 10px; padding: 8px 18px;
+    background: var(--main); color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 13px;
+  }
+  #fileInput { display: none; }
+
+  .meta-line { margin-top: 14px; font-size: 13px; color: #333; }
+  .meta-line b { color: var(--main); }
+
+  table.data-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+  table.data-table th, table.data-table td {
+    border: 1px solid #E2E6ED; padding: 7px 10px; text-align: left;
+  }
+  table.data-table th { background: #F0F2F8; color: #333; font-weight: 600; }
+  table.data-table td.num, table.data-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.data-table tr.subtotal td { background: #F7F8FC; font-weight: 700; color: var(--main); }
+  table.data-table tr.section-head td { background: var(--main); color: #fff; font-weight: 700; }
+
+  .neg { color: var(--danger); font-weight: 700; }
+  .badge-ok { color: var(--main); font-weight: 700; }
+  .badge-check { color: var(--danger); font-weight: 700; }
+  .badge-skip { color: var(--gray); }
+
+  .step2-layout { display: grid; grid-template-columns: 340px 1fr; gap: 24px; }
+  .step2-layout .input-panel .field { margin-bottom: 12px; }
+  .step2-layout .input-panel label { font-size: 12px; color: #444; display: block; margin-bottom: 4px; }
+  .step2-layout .input-panel input {
+    width: 100%; padding: 8px 10px; border: 1px solid #D5D9E0; border-radius: 6px;
+    text-align: right; font-variant-numeric: tabular-nums;
+  }
+  .note-text { font-size: 12px; color: #777; margin-top: 12px; }
+
+  .severity-high { color: var(--danger); font-weight: 700; }
+  .severity-medium { color: #B8862F; font-weight: 700; }
+  .severity-low { color: var(--gray); }
+
+  button.primary-btn {
+    background: var(--main); color: #fff; border: none; border-radius: 6px;
+    padding: 10px 20px; font-size: 14px; cursor: pointer;
+  }
+  button.primary-btn:disabled { background: #A9B4CC; cursor: not-allowed; }
+  button.primary-btn:hover:not(:disabled) { background: #002a70; }
+
+  .cost-estimate {
+    margin-top: 12px; padding: 10px 12px; background: #FBF7EC; border: 1px solid var(--accent);
+    border-radius: 6px; font-size: 13px; color: #5C4A1D;
+  }
+  .disclaimer {
+    margin-top: 10px; padding: 10px 12px; background: #F0F2F8; border-left: 3px solid var(--main);
+    font-size: 12.5px; color: #333;
+  }
+  .spinner {
+    display: inline-block; width: 16px; height: 16px; border: 2px solid #ccc; border-top-color: var(--main);
+    border-radius: 50%; animation: spin .8s linear infinite; vertical-align: middle; margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .error-box {
+    margin-top: 12px; padding: 10px 12px; background: #FBEAEA; border: 1px solid var(--danger);
+    border-radius: 6px; color: var(--danger); font-size: 13px; white-space: pre-wrap;
+  }
+
+  .summary-card { display: flex; flex-wrap: wrap; gap: 30px; align-items: flex-start; justify-content: space-between; }
+  .summary-block h3 { margin: 0 0 6px; font-size: 13px; color: var(--main); }
+  .summary-block p { margin: 2px 0; font-size: 13px; }
+
+  /* modal */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.4); display: none;
+    align-items: center; justify-content: center; z-index: 100;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal-box {
+    background: #fff; border-radius: 10px; padding: 24px; width: 420px; box-shadow: 0 6px 30px rgba(0,0,0,.25);
+  }
+  .modal-box h3 { margin-top: 0; color: var(--main); }
+  .modal-box input[type=password], .modal-box input[type=text] {
+    width: 100%; padding: 8px 10px; border: 1px solid #D5D9E0; border-radius: 6px; margin: 8px 0 14px;
+  }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .btn-secondary {
+    background: #EEE; border: 1px solid #CCC; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 13px;
+  }
+  .btn-danger {
+    background: #fff; color: var(--danger); border: 1px solid var(--danger); border-radius: 6px;
+    padding: 8px 16px; cursor: pointer; font-size: 13px;
+  }
+  .current-key-line { font-size: 13px; color: #444; margin-bottom: 10px; }
+
+  @media print {
+    .no-print { display: none !important; }
+    .step2-layout { display: block; }
+    header.topbar { background: #fff !important; color: #000 !important; border-bottom: 2px solid #000; }
+    .card { box-shadow: none; border: 1px solid #ccc; }
+    body { background: #fff; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <h1>부가세 신고서 결재 보조</h1>
+  <button class="gear-btn no-print" id="btnSettings" title="API 키 설정">⚙</button>
+</header>
+
+<div class="container">
+
+  <!-- 업체 정보 -->
+  <section class="card no-print" id="companyCard">
+    <h2>업체 정보</h2>
+    <div class="grid-form">
+      <div class="field">
+        <label for="companyName">업체명</label>
+        <input type="text" id="companyName" placeholder="예: (주)딥다이브">
+      </div>
+      <div class="field">
+        <label for="period">과세기간</label>
+        <select id="period"></select>
+      </div>
+      <div class="field">
+        <label for="bizType">사업자유형</label>
+        <select id="bizType">
+          <option value="법인">법인</option>
+          <option value="개인">개인</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="industry">업종</label>
+        <input type="text" id="industry" placeholder="예: 음식점업">
+      </div>
+      <div class="field checkbox">
+        <input type="checkbox" id="hasExemptBiz">
+        <label for="hasExemptBiz" style="margin:0;">면세사업 겸영</label>
+      </div>
+    </div>
+  </section>
+
+  <!-- STEP 1 -->
+  <section class="card" id="step1Card">
+    <h2>STEP 1. 매입매출장 업로드</h2>
+    <div class="dropzone no-print" id="dropzone">
+      <div>여기로 엑셀 파일(.xlsx)을 드래그하거나</div>
+      <button class="browse-btn" id="btnBrowse" type="button">파일 선택</button>
+      <input type="file" id="fileInput" accept=".xlsx">
+    </div>
+    <div id="step1Result"></div>
+  </section>
+
+  <!-- STEP 2 -->
+  <section class="card" id="step2Card" style="display:none;">
+    <h2>STEP 2. 신고서 수기 입력 + 간이 대사</h2>
+    <div class="step2-layout">
+      <div class="input-panel no-print" id="reconInputPanel"></div>
+      <div>
+        <table class="data-table" id="reconTable">
+          <thead>
+            <tr><th>항목</th><th class="num">신고서</th><th class="num">장부 집계</th><th class="num">차이</th><th>판정</th></tr>
+          </thead>
+          <tbody id="reconTableBody"></tbody>
+        </table>
+        <div class="note-text">※ 예정신고누락분·대손세액 등으로 정당한 차이가 있을 수 있음</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STEP 3 -->
+  <section class="card" id="step3Card" style="display:none;">
+    <h2>STEP 3. AI 공제·불공제 스크리닝</h2>
+    <div class="no-print" id="step3Controls">
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
+        <input type="checkbox" id="maskVendor"> 거래처명 마스킹 (앞 2자 + ***)
+      </label>
+      <div class="cost-estimate" id="costEstimate"></div>
+      <button class="primary-btn" id="btnRunAi" style="margin-top:12px;">Sonnet 스크리닝 실행</button>
+      <span id="aiSpinner" style="display:none;margin-left:10px;"><span class="spinner"></span>분석 중...</span>
+      <div id="aiError"></div>
+    </div>
+    <div id="aiResultArea"></div>
+  </section>
+
+  <!-- 결재 요약 -->
+  <section class="card" id="summaryCard" style="display:none;">
+    <h2>결재 요약</h2>
+    <div class="summary-card" id="summaryBody"></div>
+    <div style="margin-top:16px;" class="no-print">
+      <button class="primary-btn" id="btnPrint">인쇄</button>
+    </div>
+  </section>
+
+</div>
+
+<!-- API 키 설정 모달 -->
+<div class="modal-overlay no-print" id="settingsModal">
+  <div class="modal-box">
+    <h3>API 키 설정</h3>
+    <div class="current-key-line" id="currentKeyLine">저장된 키 없음</div>
+    <label for="apiKeyInput" style="font-size:12px;color:#555;">Anthropic API 키</label>
+    <input type="password" id="apiKeyInput" placeholder="sk-ant-...">
+    <div class="modal-actions">
+      <button class="btn-danger" id="btnDeleteKey">삭제</button>
+      <button class="btn-secondary" id="btnCloseModal">닫기</button>
+      <button class="primary-btn" id="btnSaveKey">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     parser-core: 순수 함수 블록. DOM/window 참조 금지.
+     Node 테스트 하니스가 이 블록을 추출해 독립 실행/검증한다 (SPEC §7).
+     ============================================================ -->
+<script id="parser-core">
+function parseLedger(rows2D) {
+  // 3.2 헤더 행 탐색
+  var headerRowIdx = -1;
+  var colMap = null;
+  for (var i = 0; i < rows2D.length; i++) {
+    var row = rows2D[i] || [];
+    var trimmed = row.map(function (c) {
+      return (c === null || c === undefined) ? '' : String(c).trim();
+    });
+    if (trimmed.indexOf('구분') !== -1 &&
+        (trimmed.indexOf('공급가액') !== -1 || trimmed.indexOf('공급 가액') !== -1)) {
+      headerRowIdx = i;
+      colMap = {};
+      row.forEach(function (cell, idx) {
+        if (cell === null || cell === undefined) return;
+        var key = String(cell).trim().replace(/\s+/g, '');
+        if (!(key in colMap)) colMap[key] = idx;
+      });
+      break;
+    }
+  }
+  if (headerRowIdx === -1) {
+    throw new Error('헤더 행을 찾을 수 없습니다 (구분/공급가액 컬럼 없음)');
+  }
+
+  // 3.3 dialect 판정
+  var dialect = (colMap['유형'] === 0 && colMap['구분'] === 1) ? 'samu' : 'wehago';
+  var isSamu = dialect === 'samu';
+
+  // 3.4 컬럼 매핑
+  var idx = {};
+  if (isSamu) {
+    idx.typeName = colMap['유형'];
+    idx.side = colMap['구분'];
+    idx.date = colMap['일자'];
+    idx.item = colMap['품목'];
+    idx.amount = colMap['공급가액'];
+    idx.tax = colMap['부가세'];
+    idx.total = colMap['합계'];
+    idx.electronic = colMap['전자'];
+    idx.vendor = colMap['거래처'];
+    idx.bizNo = undefined;
+    idx.mmType = undefined;
+    idx.account = colMap['계정과목명'];
+    idx.cardCompany = colMap['신용카드사명'];
+    idx.cardNo = (colMap['카드(가맹점)번호'] !== undefined) ? colMap['카드(가맹점)번호'] : colMap['카드가맹점번호'];
+  } else {
+    function col(name, fallbackIdx) {
+      return (colMap[name] !== undefined) ? colMap[name] : fallbackIdx;
+    }
+    idx.side = col('구분', 0);
+    idx.date = col('전표일자', 1);
+    idx.item = col('품명', 5);
+    idx.amount = col('공급가액', 6);
+    idx.tax = col('부가세', 7);
+    idx.total = col('합계', 8);
+    idx.electronic = col('전자세금', 10);
+    idx.vendor = col('거래처', 3);
+    idx.bizNo = col('사업자번호', 4);
+    idx.mmType = col('매입매출유형', 12);
+    idx.account = col('계정과목', 15);
+    idx.cardCompany = col('신용카드사', 25);
+    idx.cardNo = col('카드번호', 26);
+    idx.typeName = undefined;
+  }
+
+  // 3.6 유형 코드 매핑표
+  var salesCodeMap = { 과세: 11, 영세: 12, 면세: 13, 건별: 14, 간이: 15, 수출: 16, 카과: 17, 카면: 18, 카영: 19, 면건: 20, 전자: 21, 현과: 22, 현면: 23, 현영: 24 };
+  var purchaseCodeMap = { 과세: 51, 영세: 52, 면세: 53, 불공: 54, 수입: 55, 카과: 57, 카면: 58, 카영: 59, 면건: 60, 현과: 61, 현면: 62 };
+
+  function toStr(v) { return (v === null || v === undefined) ? '' : String(v).trim(); }
+  function toDateStr(v) {
+    // SheetJS raw 모드는 날짜 셀을 엑셀 일련번호(숫자)로 반환 — 1982~2064 범위만 날짜로 간주해 변환
+    if (typeof v === 'number' && v > 30000 && v < 60000) {
+      return new Date(Math.round((v - 25569) * 86400000)).toISOString().slice(0, 10);
+    }
+    return toStr(v);
+  }
+  function toNum(v) {
+    if (v === null || v === undefined) return 0;
+    if (typeof v === 'number') return Math.trunc(v);
+    var s = String(v).replace(/,/g, '');
+    var n = parseInt(s, 10);
+    return isNaN(n) ? 0 : n;
+  }
+
+  var rows = [];
+  var byType = {};
+  var totals = { sales: { count: 0, amount: 0, tax: 0 }, purchases: { count: 0, amount: 0, tax: 0 } };
+
+  for (var r = headerRowIdx + 1; r < rows2D.length; r++) {
+    var rw = rows2D[r] || [];
+
+    // 3.5-1 전부 null인 행 스킵
+    var allNull = rw.every(function (c) { return c === null || c === undefined; });
+    if (allNull) continue;
+
+    // 3.5-2 합계행 스킵
+    var isSumRow = false;
+    for (var k = 0; k < 5; k++) {
+      var c = rw[k];
+      if (typeof c === 'string') {
+        var s2 = c.replace(/\s+/g, '');
+        if (s2.indexOf('합계') !== -1 || s2.indexOf('월계') !== -1 || s2.indexOf('누계') !== -1) {
+          isSumRow = true;
+          break;
+        }
+      }
+    }
+    if (isSumRow) continue;
+
+    // 3.5-3 구분 체크
+    var side = toStr(rw[idx.side]);
+    if (side !== '매출' && side !== '매입') continue;
+
+    // 3.6 유형 코드 결정
+    var typeCode, typeName;
+    if (isSamu) {
+      typeName = toStr(rw[idx.typeName]);
+      var map = (side === '매출') ? salesCodeMap : purchaseCodeMap;
+      typeCode = map[typeName];
+      if (typeCode === undefined) continue;
+    } else {
+      var mmStr = toStr(rw[idx.mmType]);
+      var m = mmStr.match(/^(\d{2})\.([가-힣]+)/);
+      if (!m) continue;
+      typeCode = parseInt(m[1], 10);
+      typeName = m[2];
+    }
+
+    var amount = toNum(rw[idx.amount]);
+    var tax = toNum(rw[idx.tax]);
+    var total = toNum(rw[idx.total]);
+
+    var rec = {
+      side: side,
+      date: toDateStr(rw[idx.date]),
+      vendor: toStr(rw[idx.vendor]),
+      bizNo: (idx.bizNo !== undefined) ? toStr(rw[idx.bizNo]) : '',
+      item: toStr(rw[idx.item]),
+      amount: amount,
+      tax: tax,
+      total: total,
+      electronic: toStr(rw[idx.electronic]),
+      typeCode: typeCode,
+      typeName: typeName,
+      account: toStr(rw[idx.account]),
+      cardCompany: toStr(rw[idx.cardCompany]),
+      cardNo: toStr(rw[idx.cardNo]),
+    };
+    rows.push(rec);
+
+    if (!byType[typeCode]) byType[typeCode] = { count: 0, amount: 0, tax: 0 };
+    byType[typeCode].count += 1;
+    byType[typeCode].amount += amount;
+    byType[typeCode].tax += tax;
+
+    var bucket = (typeCode < 50) ? totals.sales : totals.purchases;
+    bucket.count += 1;
+    bucket.amount += amount;
+    bucket.tax += tax;
+  }
+
+  return {
+    dialect: dialect,
+    headerRowIndex: headerRowIdx + 1,
+    rows: rows,
+    byType: byType,
+    totals: totals,
+  };
+}
+</script>
+
+<!-- ============================================================
+     app: 화면 로직. parser-core의 parseLedger()를 호출해 사용.
+     ============================================================ -->
+<script id="app-main">
+(function () {
+  'use strict';
+
+  // ---- 상수 ----
+  var CODE_NAME_MAP = {
+    11: '과세', 12: '영세', 13: '면세', 14: '건별', 15: '간이', 16: '수출',
+    17: '카과', 18: '카면', 19: '카영', 20: '면건', 21: '전자', 22: '현과', 23: '현면', 24: '현영',
+    51: '과세', 52: '영세', 53: '면세', 54: '불공', 55: '수입',
+    57: '카과', 58: '카면', 59: '카영', 60: '면건', 61: '현과', 62: '현면',
+  };
+
+  var RECON_ITEMS = [
+    { key: 'r1', label: '(1) 과세 세금계산서 발급분 공급가액', codes: [11] },
+    { key: 'r3', label: '(3) 과세 신용카드·현금영수증 발행분 공급가액', codes: [17, 22] },
+    { key: 'r4', label: '(4) 과세 기타(정규영수증 외) 공급가액', codes: [14] },
+    { key: 'r56', label: '(5)+(6) 영세율 합계 공급가액', codes: [12, 16] },
+    { key: 'r1012', label: '(10)+(12) 세금계산서수취분 일반+고정자산 공급가액', codes: [51, 54] },
+    { key: 'r4142', label: '(41)+(42) 신용카드매출전표등 수취 공급가액', codes: [57, 61] },
+    { key: 'r50', label: '(50) 공제받지못할매입세액 해당 공급가액', codes: [54] },
+  ];
+  var R43 = { key: 'r43', label: '(43) 의제매입세액 공제 세액' };
+
+  var SYSTEM_PROMPT = [
+    '당신은 한국 부가가치세 신고서 결재를 보조하는 세무 검토자입니다.',
+    '전달되는 매입 내역(거래처×계정과목×매입유형코드 단위로 그룹핑됨)을 검토하여 매입세액 공제·불공제 처리의 적정성을 스크리닝하십시오.',
+    '',
+    '판단 기준:',
+    '1. 유형코드 57(카과)·61(현과) 매입 중 접대비성 의심 거래(골프장, 유흥주점, 백화점/마트 상품권, 선물세트 등 거래처·품목 패턴)를 찾아 플래그하십시오.',
+    '2. 주유소·정비소·렌터카 관련 거래처이거나 차량 관련 계정과목인 경우, 비영업용 소형승용차(개별소비세 과세대상)에 해당하여 매입세액 불공제 검토가 필요한지 플래그하십시오.',
+    '3. 유형코드 51(과세매입) 중 계정과목이 접대비·기업업무추진비 성격인데 불공(54) 처리되지 않은 것은 issue_type을 "불공제누락"으로 플래그하십시오.',
+    '4. 유형코드 54(불공) 행은 계정과목·거래처로 미루어 불공 처리 사유가 타당한지 검토하고, 의문이 있으면 플래그하십시오.',
+    '5. 면세사업 겸영 여부가 true로 전달되면 공통매입세액 안분계산 확인이 필요한 항목에 대해 확인 포인트를 제시하십시오.',
+    '6. 반대로 명백히 공제 가능한 매입으로 보이는데 불공(54) 처리된 경우는 issue_type을 "공제누락"으로 플래그하십시오.',
+    '7. 확신이 없더라도 severity를 low로 낮추어 최대한 보고하십시오. 과다보고가 누락보다 낫습니다 — 최종 판단은 담당 세무사가 합니다.',
+    '',
+    '출력은 지정된 JSON 스키마를 그대로 따르십시오.',
+    'reason은 1문장으로 플래그 사유를 설명하고, check_point는 세무사가 원장·증빙에서 확인해야 할 구체적 행동을 1문장으로 제시하십시오.',
+    '해당 사항이 없으면 flags를 빈 배열로 반환하고 summary에 그 취지를 기재하십시오.',
+  ].join('\n');
+
+  var RESULT_SCHEMA = {
+    type: 'object',
+    properties: {
+      summary: { type: 'string' },
+      flags: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            vendor: { type: 'string' },
+            account: { type: 'string' },
+            type_code: { type: 'integer' },
+            amount: { type: 'integer' },
+            issue_type: { type: 'string', enum: ['접대비성', '비영업용승용차', '면세관련', '사업무관의심', '불공제누락', '공제누락', '기타'] },
+            severity: { type: 'string', enum: ['high', 'medium', 'low'] },
+            reason: { type: 'string' },
+            check_point: { type: 'string' },
+          },
+          required: ['vendor', 'account', 'type_code', 'amount', 'issue_type', 'severity', 'reason', 'check_point'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['summary', 'flags'],
+    additionalProperties: false,
+  };
+
+  var GROUP_LIMIT = 500;
+
+  // ---- 상태 ----
+  var state = {
+    ledger: null,       // parseLedger() 결과
+    reconResults: [],   // STEP2 계산 결과
+    aiResult: null,      // STEP3 API 응답 파싱 결과
+    aiTruncated: false,
+  };
+
+  // ---- 유틸 ----
+  function $(id) { return document.getElementById(id); }
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function fmtNum(n) {
+    if (n === null || n === undefined || isNaN(n)) return '';
+    var s = Math.abs(n).toLocaleString('ko-KR');
+    return (n < 0 ? '-' : '') + s;
+  }
+  function numCell(n) {
+    var cls = (n < 0) ? ' class="neg"' : '';
+    return '<td class="num"' + cls + '>' + fmtNum(n) + '</td>';
+  }
+
+  // ---- 과세기간 select 옵션 채우기 ----
+  function initPeriodSelect() {
+    var sel = $('period');
+    var yearNow = new Date().getFullYear();
+    var years = [yearNow - 1, yearNow, yearNow + 1];
+    var opts = [];
+    years.forEach(function (y) {
+      ['1기 예정', '1기 확정', '2기 예정', '2기 확정'].forEach(function (p) {
+        opts.push(y + '년 ' + p);
+      });
+    });
+    sel.innerHTML = opts.map(function (o) { return '<option value="' + o + '">' + o + '</option>'; }).join('');
+  }
+
+  // ---- 설정 모달 (API 키) ----
+  var LS_KEY = 'vat2_api_key';
+  function maskKey(key) {
+    if (!key) return '';
+    if (key.length <= 8) return key[0] + '***';
+    return key.slice(0, 8) + '***' + key.slice(-4);
+  }
+  function refreshKeyLine() {
+    var key = localStorage.getItem(LS_KEY);
+    $('currentKeyLine').textContent = key ? ('저장된 키: ' + maskKey(key)) : '저장된 키 없음';
+  }
+  function openModal() { refreshKeyLine(); $('apiKeyInput').value = ''; $('settingsModal').classList.add('open'); }
+  function closeModal() { $('settingsModal').classList.remove('open'); }
+
+  $('btnSettings').addEventListener('click', openModal);
+  $('btnCloseModal').addEventListener('click', closeModal);
+  $('settingsModal').addEventListener('click', function (e) { if (e.target === $('settingsModal')) closeModal(); });
+  $('btnSaveKey').addEventListener('click', function () {
+    var v = $('apiKeyInput').value.trim();
+    if (v) { localStorage.setItem(LS_KEY, v); refreshKeyLine(); $('apiKeyInput').value = ''; updateCostEstimate(); }
+  });
+  $('btnDeleteKey').addEventListener('click', function () {
+    localStorage.removeItem(LS_KEY);
+    refreshKeyLine();
+  });
+
+  // ============================================================
+  // STEP 1: 업로드 & 파싱
+  // ============================================================
+  var dropzone = $('dropzone');
+  var fileInput = $('fileInput');
+  $('btnBrowse').addEventListener('click', function () { fileInput.click(); });
+  fileInput.addEventListener('change', function (e) {
+    if (e.target.files && e.target.files[0]) handleFile(e.target.files[0]);
+  });
+  ['dragenter', 'dragover'].forEach(function (ev) {
+    dropzone.addEventListener(ev, function (e) { e.preventDefault(); dropzone.classList.add('dragover'); });
+  });
+  ['dragleave', 'drop'].forEach(function (ev) {
+    dropzone.addEventListener(ev, function (e) { e.preventDefault(); dropzone.classList.remove('dragover'); });
+  });
+  dropzone.addEventListener('drop', function (e) {
+    var f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) handleFile(f);
+  });
+
+  function handleFile(file) {
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      try {
+        var data = new Uint8Array(e.target.result);
+        var wb = XLSX.read(data, { type: 'array' });
+        var wsName = wb.SheetNames[0];
+        var ws = wb.Sheets[wsName];
+        var rows2D = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
+        var result = parseLedger(rows2D);
+        state.ledger = result;
+        renderStep1(result, file.name);
+        $('step2Card').style.display = '';
+        $('step3Card').style.display = '';
+        $('summaryCard').style.display = '';
+        renderStep2InputPanel();
+        computeAndRenderRecon();
+        updateCostEstimate();
+        renderSummary();
+      } catch (err) {
+        state.ledger = null;
+        $('step1Result').innerHTML = '<div class="error-box">파싱 실패: ' + escapeHtml(err.message) + '</div>';
+        $('step2Card').style.display = 'none';
+        $('step3Card').style.display = 'none';
+        $('summaryCard').style.display = 'none';
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function dialectLabel(d) { return d === 'samu' ? '세무사랑' : '위하고'; }
+
+  function renderStep1(result, fileName) {
+    var dates = result.rows.map(function (r) { return r.date; }).filter(function (d) { return /^\d{4}-\d{2}-\d{2}/.test(d); }).sort();
+    var dateRange = dates.length ? (dates[0] + ' ~ ' + dates[dates.length - 1]) : '(날짜 인식 불가)';
+
+    var html = '';
+    html += '<div class="meta-line">파일: ' + escapeHtml(fileName) + '</div>';
+    html += '<div class="meta-line">판정 형식(dialect): <b>' + dialectLabel(result.dialect) + '</b> · 총 행수: <b>' + result.rows.length + '건</b> · 날짜 범위: <b>' + dateRange + '</b></div>';
+
+    html += renderTypeSection('매출부', result.byType, result.totals.sales, function (c) { return c < 50; });
+    html += renderTypeSection('매입부', result.byType, result.totals.purchases, function (c) { return c >= 50; });
+
+    $('step1Result').innerHTML = html;
+  }
+
+  function renderTypeSection(title, byType, totalsBucket, codeFilter) {
+    var codes = Object.keys(byType).map(Number).filter(codeFilter).sort(function (a, b) { return a - b; });
+    var rowsHtml = codes.map(function (code) {
+      var t = byType[code];
+      return '<tr><td>' + code + '</td><td>' + (CODE_NAME_MAP[code] || '') + '</td>' +
+        numCell(t.count) + numCell(t.amount) + numCell(t.tax) + '</tr>';
+    }).join('');
+    var subtotal = '<tr class="subtotal"><td colspan="2">소계</td>' +
+      numCell(totalsBucket.count) + numCell(totalsBucket.amount) + numCell(totalsBucket.tax) + '</tr>';
+    return '<h3>' + title + ' 유형별 집계</h3>' +
+      '<table class="data-table"><thead><tr><th>코드</th><th>유형명</th><th class="num">건수</th><th class="num">공급가액</th><th class="num">부가세</th></tr></thead>' +
+      '<tbody>' + (rowsHtml || '<tr><td colspan="5">해당 없음</td></tr>') + subtotal + '</tbody></table>';
+  }
+
+  // ============================================================
+  // STEP 2: 신고서 입력 + 간이 대사
+  // ============================================================
+  function attachCommaInput(inputEl) {
+    inputEl.addEventListener('input', function () {
+      var raw = inputEl.value.replace(/[^0-9-]/g, '');
+      var neg = raw.indexOf('-') === 0;
+      var digits = raw.replace(/-/g, '');
+      digits = digits.replace(/^0+(?=\d)/, '');
+      var formatted = digits ? Number(digits).toLocaleString('ko-KR') : '';
+      inputEl.value = (neg ? '-' : '') + formatted;
+      computeAndRenderRecon();
+      renderSummary();
+    });
+  }
+
+  function renderStep2InputPanel() {
+    var panel = $('reconInputPanel');
+    var html = '';
+    RECON_ITEMS.forEach(function (item) {
+      html += '<div class="field"><label for="' + item.key + '">' + escapeHtml(item.label) + '</label>' +
+        '<input type="text" id="' + item.key + '" placeholder="미입력 시 대사 제외"></div>';
+    });
+    html += '<div class="field"><label for="' + R43.key + '">' + escapeHtml(R43.label) + '</label>' +
+      '<input type="text" id="' + R43.key + '" placeholder="장부 대응 없음 · 참고용"></div>';
+    panel.innerHTML = html;
+    RECON_ITEMS.concat([R43]).forEach(function (item) {
+      attachCommaInput($(item.key));
+    });
+  }
+
+  function readInputNumber(id) {
+    var v = $(id).value.replace(/,/g, '').trim();
+    if (v === '' || v === '-') return null;
+    var n = parseInt(v, 10);
+    return isNaN(n) ? null : n;
+  }
+
+  function computeAndRenderRecon() {
+    if (!state.ledger) return;
+    var byType = state.ledger.byType;
+    var results = RECON_ITEMS.map(function (item) {
+      var ledgerSum = item.codes.reduce(function (s, c) { return s + (byType[c] ? byType[c].amount : 0); }, 0);
+      var inputVal = readInputNumber(item.key);
+      var diff = (inputVal === null) ? null : (inputVal - ledgerSum);
+      return { label: item.label, input: inputVal, ledger: ledgerSum, diff: diff };
+    });
+    state.reconResults = results;
+
+    var body = results.map(function (r) {
+      var judge, judgeHtml;
+      if (r.input === null) {
+        judgeHtml = '<span class="badge-skip">—</span>';
+      } else if (r.diff === 0) {
+        judgeHtml = '<span class="badge-ok">적정</span>';
+      } else {
+        judgeHtml = '<span class="badge-check">확인필요</span>';
+      }
+      return '<tr><td>' + escapeHtml(r.label) + '</td>' +
+        (r.input === null ? '<td class="num">-</td>' : numCell(r.input)) +
+        numCell(r.ledger) +
+        (r.diff === null ? '<td class="num">-</td>' : numCell(r.diff)) +
+        '<td>' + judgeHtml + '</td></tr>';
+    }).join('');
+    $('reconTableBody').innerHTML = body;
+    renderSummary();
+  }
+
+  // ============================================================
+  // STEP 3: AI 스크리닝
+  // ============================================================
+  function buildAiPayload() {
+    var ledger = state.ledger;
+    var mask = $('maskVendor').checked;
+    function maskVendor(v) {
+      if (!mask || !v) return v;
+      return v.slice(0, 2) + '***';
+    }
+
+    var purchaseRows = ledger.rows.filter(function (r) { return r.typeCode >= 50; });
+    var groupMap = {};
+    purchaseRows.forEach(function (r) {
+      var key = r.vendor + '\u0001' + r.account + '\u0001' + r.typeCode;
+      if (!groupMap[key]) {
+        groupMap[key] = { vendor: r.vendor, account: r.account, typeCode: r.typeCode, count: 0, amount: 0, tax: 0, items: [] };
+      }
+      var g = groupMap[key];
+      g.count += 1;
+      g.amount += r.amount;
+      g.tax += r.tax;
+      if (g.items.indexOf(r.item) === -1 && g.items.length < 2) g.items.push(r.item);
+    });
+    var groups = Object.keys(groupMap).map(function (k) { return groupMap[k]; });
+    var omittedCount = 0;
+    if (groups.length > GROUP_LIMIT) {
+      groups.sort(function (a, b) { return Math.abs(b.amount) - Math.abs(a.amount); });
+      omittedCount = groups.length - GROUP_LIMIT;
+      groups = groups.slice(0, GROUP_LIMIT);
+    }
+    groups.forEach(function (g) { g.vendor = maskVendor(g.vendor); });
+
+    var salesSummary = Object.keys(ledger.byType).map(Number).filter(function (c) { return c < 50; }).sort(function (a, b) { return a - b; }).map(function (c) {
+      var t = ledger.byType[c];
+      return { typeCode: c, typeName: CODE_NAME_MAP[c] || '', count: t.count, amount: t.amount, tax: t.tax };
+    });
+
+    return {
+      meta: {
+        industry: $('industry').value || '',
+        bizType: $('bizType').value,
+        hasExemptBiz: $('hasExemptBiz').checked,
+        period: $('period').value,
+      },
+      salesSummary: salesSummary,
+      purchaseGroups: groups,
+      omittedGroupCount: omittedCount,
+    };
+  }
+
+  function estimateCost(payload) {
+    var json = JSON.stringify(payload);
+    var inTok = json.length / 2;
+    var outTok = 6000; // adaptive thinking 포함 넉넉히
+    var costWon = (inTok / 1e6 * 3 + outTok / 1e6 * 15) * 1400;
+    return { inTok: Math.round(inTok), outTok: outTok, costWon: Math.round(costWon) };
+  }
+
+  function updateCostEstimate() {
+    var box = $('costEstimate');
+    if (!state.ledger) { box.innerHTML = ''; return; }
+    var payload = buildAiPayload();
+    var est = estimateCost(payload);
+    var html = '예상 입력 토큰 약 ' + fmtNum(est.inTok) + ' · 예상 출력 토큰 약 ' + fmtNum(est.outTok) +
+      ' · <b>약 ' + fmtNum(est.costWon) + '원 예상</b> (표준단가 기준, 넉넉히 산정)';
+    if (payload.omittedGroupCount > 0) {
+      html += '<br>거래처×계정과목×유형 그룹이 ' + GROUP_LIMIT + '개를 초과하여 금액 상위 ' + GROUP_LIMIT + '개만 전송됩니다. 하위 ' + payload.omittedGroupCount + '개 그룹은 생략됩니다.';
+    }
+    box.innerHTML = html;
+  }
+  $('maskVendor').addEventListener('change', updateCostEstimate);
+
+  $('btnRunAi').addEventListener('click', runAiScreening);
+
+  function runAiScreening() {
+    var apiKey = localStorage.getItem(LS_KEY);
+    $('aiError').innerHTML = '';
+    if (!apiKey) {
+      $('aiError').innerHTML = '<div class="error-box">API 키가 설정되지 않았습니다. 우측 상단 ⚙ 버튼에서 키를 등록하세요.</div>';
+      return;
+    }
+    if (!state.ledger) return;
+
+    var payload = buildAiPayload();
+    $('btnRunAi').disabled = true;
+    $('aiSpinner').style.display = '';
+
+    var MODEL = 'claude-sonnet-5';
+    fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: 16000,
+        system: SYSTEM_PROMPT,
+        output_config: { effort: 'medium', format: { type: 'json_schema', schema: RESULT_SCHEMA } },
+        messages: [{ role: 'user', content: JSON.stringify(payload) }],
+      }),
+    }).then(function (res) {
+      if (!res.ok) {
+        return res.json().catch(function () { return {}; }).then(function (errBody) {
+          var msg = (errBody && errBody.error && errBody.error.message) || res.statusText;
+          if (res.status === 401) {
+            throw new Error('인증 실패(401): API 키를 확인하세요.');
+          } else if (res.status === 429) {
+            throw new Error('요청 한도 초과(429): 잠시 후 다시 시도하세요.');
+          } else {
+            throw new Error('오류(' + res.status + '): ' + msg);
+          }
+        });
+      }
+      return res.json();
+    }).then(function (data) {
+      var textBlock = (data.content || []).find(function (b) { return b.type === 'text'; });
+      if (!textBlock) {
+        var types = (data.content || []).map(function (b) { return b.type; }).join(', ') || '(없음)';
+        if (data.stop_reason === 'max_tokens') {
+          throw new Error('사고(thinking) 토큰이 max_tokens를 소진해 본문이 생성되지 못했습니다 (블록: ' + types + '). 그룹 수를 줄이거나 다시 시도하세요.');
+        }
+        if (data.stop_reason === 'refusal') {
+          throw new Error('모델이 응답을 거부했습니다 (refusal). 전송 데이터 내용을 확인하세요.');
+        }
+        throw new Error('응답에서 텍스트 블록을 찾을 수 없습니다. stop_reason=' + data.stop_reason + ', 블록: ' + types);
+      }
+      state.aiTruncated = data.stop_reason === 'max_tokens';
+      var parsed;
+      try {
+        parsed = JSON.parse(textBlock.text);
+      } catch (e) {
+        if (state.aiTruncated) throw new Error('응답이 max_tokens에서 잘려 JSON 파싱에 실패했습니다. 마스킹을 켜거나 그룹 수를 줄여 재실행하세요.');
+        throw e;
+      }
+      state.aiResult = parsed;
+      renderAiResults();
+      renderSummary();
+    }).catch(function (err) {
+      var msg = err && err.message ? err.message : String(err);
+      var hint = '';
+      if (/Failed to fetch|NetworkError|TypeError/.test(msg)) {
+        hint = '<br>네트워크 요청이 차단되었을 수 있습니다. file:// 환경에서는 브라우저가 요청을 막을 수 있습니다 — 로컬 서버(예: <code>python -m http.server</code>)로 열어보세요.';
+      }
+      $('aiError').innerHTML = '<div class="error-box">' + escapeHtml(msg) + hint + '</div>';
+    }).finally(function () {
+      $('btnRunAi').disabled = false;
+      $('aiSpinner').style.display = 'none';
+    });
+  }
+
+  function renderAiResults() {
+    var r = state.aiResult;
+    var area = $('aiResultArea');
+    if (!r) { area.innerHTML = ''; return; }
+    var html = '';
+    if (state.aiTruncated) {
+      html += '<div class="error-box">결과가 잘렸습니다 (max_tokens 도달). 그룹 수를 줄이거나 재실행을 검토하세요.</div>';
+    }
+    html += '<p>' + escapeHtml(r.summary) + '</p>';
+    html += '<div class="disclaimer">AI 판단은 참고용입니다. 최종 판단은 세무사 검토로 확정하세요.</div>';
+
+    var rows = (r.flags || []).map(function (f) {
+      var sevLabel = { high: '높음', medium: '보통', low: '낮음' }[f.severity] || f.severity;
+      var sevCls = 'severity-' + (f.severity || 'low');
+      return '<tr><td class="' + sevCls + '">' + escapeHtml(sevLabel) + '</td>' +
+        '<td>' + escapeHtml(f.vendor) + '</td>' +
+        '<td>' + escapeHtml(f.account) + '</td>' +
+        '<td>' + f.type_code + ' ' + (CODE_NAME_MAP[f.type_code] || '') + '</td>' +
+        numCell(f.amount) +
+        '<td>' + escapeHtml(f.issue_type) + '</td>' +
+        '<td>' + escapeHtml(f.reason) + '</td>' +
+        '<td>' + escapeHtml(f.check_point) + '</td></tr>';
+    }).join('');
+
+    html += '<table class="data-table"><thead><tr>' +
+      '<th>심각도</th><th>거래처</th><th>계정과목</th><th>유형</th><th class="num">금액</th><th>이슈</th><th>사유</th><th>확인 포인트</th>' +
+      '</tr></thead><tbody>' + (rows || '<tr><td colspan="8">플래그된 항목이 없습니다.</td></tr>') + '</tbody></table>';
+
+    area.innerHTML = html;
+  }
+
+  // ============================================================
+  // 하단: 결재 요약 카드
+  // ============================================================
+  function renderSummary() {
+    var box = $('summaryBody');
+    var companyName = $('companyName').value || '(업체명 미입력)';
+    var period = $('period').value || '';
+
+    var okCount = state.reconResults.filter(function (r) { return r.input !== null && r.diff === 0; }).length;
+    var checkCount = state.reconResults.filter(function (r) { return r.input !== null && r.diff !== 0; }).length;
+
+    var flags = (state.aiResult && state.aiResult.flags) || [];
+    var high = flags.filter(function (f) { return f.severity === 'high'; }).length;
+    var medium = flags.filter(function (f) { return f.severity === 'medium'; }).length;
+    var low = flags.filter(function (f) { return f.severity === 'low'; }).length;
+
+    var r43val = state.ledger ? readInputNumber(R43.key) : null;
+
+    var html = '';
+    html += '<div class="summary-block"><h3>업체 / 기간</h3><p>' + escapeHtml(companyName) + '</p><p>' + escapeHtml(period) + '</p></div>';
+    html += '<div class="summary-block"><h3>STEP2 대사 판정</h3><p>적정 ' + okCount + '건 / 확인필요 ' + checkCount + '건</p>' +
+      (r43val !== null ? '<p>(43) 의제매입세액 공제 세액 입력값: ' + fmtNum(r43val) + ' (장부 대응 없음, 참고용)</p>' : '') + '</div>';
+    html += '<div class="summary-block"><h3>STEP3 AI 플래그</h3><p>높음 ' + high + '건 / 보통 ' + medium + '건 / 낮음 ' + low + '건</p></div>';
+
+    box.innerHTML = html;
+  }
+
+  $('btnPrint').addEventListener('click', function () { window.print(); });
+
+  ['companyName', 'period', 'bizType', 'industry', 'hasExemptBiz'].forEach(function (id) {
+    $(id).addEventListener('change', function () { renderSummary(); updateCostEstimate(); });
+    $(id).addEventListener('input', function () { renderSummary(); });
+  });
+
+  // ---- 초기화 ----
+  initPeriodSelect();
+  renderSummary();
+})();
+</script>
+
+</body>
+</html>
