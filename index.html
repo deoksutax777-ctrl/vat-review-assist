@@ -215,6 +215,18 @@
     background: #fff; border: 1px solid var(--main); color: var(--main); border-radius: 6px;
     padding: 6px 12px; font-size: 12px; cursor: pointer;
   }
+
+  /* v2.2: STEP 1 유형별 집계 세부 내역 토글 */
+  tr.type-row { cursor: pointer; }
+  tr.type-row:hover td { background: #F3F6FB; }
+  tr.type-row .chev { display: inline-block; margin-right: 6px; color: #C5A44E; transition: transform .15s; font-size: 11px; }
+  tr.type-row.open .chev { transform: rotate(90deg); }
+  tr.type-detail-row > td.detail-cell { background: #FAFBFD; padding: 8px 10px 12px 26px; }
+  .detail-wrap { max-height: 340px; overflow: auto; border: 1px solid #E2E6ED; border-radius: 6px; }
+  .detail-wrap table.data-table { margin: 0; font-size: 12px; }
+  @media print {
+    .detail-wrap { max-height: none; overflow: visible; border: none; }
+  }
 </style>
 </head>
 <body>
@@ -971,6 +983,7 @@ function computeCardIssuanceCredit(params) {
     var html = '';
     html += '<div class="meta-line">파일: ' + escapeHtml(fileName) + '</div>';
     html += '<div class="meta-line">판정 형식(dialect): <b>' + dialectLabel(result.dialect) + '</b> · 총 행수: <b>' + result.rows.length + '건</b> · 날짜 범위: <b>' + dateRange + '</b></div>';
+    html += '<div class="meta-line">유형 행을 클릭하면 세부 전표 내역이 펼쳐집니다.</div>';
 
     html += renderTypeSection('매출부', result.byType, result.totals.sales, function (c) { return c < 50; });
     html += renderTypeSection('매입부', result.byType, result.totals.purchases, function (c) { return c >= 50; });
@@ -982,14 +995,45 @@ function computeCardIssuanceCredit(params) {
     var codes = Object.keys(byType).map(Number).filter(codeFilter).sort(function (a, b) { return a - b; });
     var rowsHtml = codes.map(function (code) {
       var t = byType[code];
-      return '<tr><td>' + code + '</td><td>' + (CODE_NAME_MAP[code] || '') + '</td>' +
-        numCell(t.count) + numCell(t.amount) + numCell(t.tax) + '</tr>';
+      return '<tr class="type-row" data-code="' + code + '"><td><span class="chev">▶</span>' + code + '</td><td>' + (CODE_NAME_MAP[code] || '') + '</td>' +
+        numCell(t.count) + numCell(t.amount) + numCell(t.tax) + '</tr>' +
+        '<tr class="type-detail-row" data-detail-for="' + code + '" style="display:none;"><td colspan="5" class="detail-cell"></td></tr>';
     }).join('');
     var subtotal = '<tr class="subtotal"><td colspan="2">소계</td>' +
       numCell(totalsBucket.count) + numCell(totalsBucket.amount) + numCell(totalsBucket.tax) + '</tr>';
     return '<h3>' + title + ' 유형별 집계</h3>' +
       '<table class="data-table"><thead><tr><th>코드</th><th>유형명</th><th class="num">건수</th><th class="num">공급가액</th><th class="num">부가세</th></tr></thead>' +
       '<tbody>' + (rowsHtml || '<tr><td colspan="5">해당 없음</td></tr>') + subtotal + '</tbody></table>';
+  }
+
+  // v2.2: 유형 행 클릭 → 세부 전표 내역 토글 (지연 렌더링, 위임 핸들러 1회 바인딩)
+  $('step1Result').addEventListener('click', function (ev) {
+    var tr = ev.target && ev.target.closest ? ev.target.closest('tr.type-row') : null;
+    if (!tr || !state.ledger) return;
+    var code = Number(tr.getAttribute('data-code'));
+    var detail = tr.parentNode.querySelector('tr.type-detail-row[data-detail-for="' + code + '"]');
+    if (!detail) return;
+    if (detail.style.display !== 'none') {
+      detail.style.display = 'none';
+      tr.classList.remove('open');
+      return;
+    }
+    var cell = detail.querySelector('td.detail-cell');
+    if (!cell.dataset.rendered) {
+      cell.innerHTML = buildTypeDetailHtml(code);
+      cell.dataset.rendered = '1';
+    }
+    detail.style.display = '';
+    tr.classList.add('open');
+  });
+
+  function buildTypeDetailHtml(code) {
+    var rows = state.ledger.rows.filter(function (r) { return r.typeCode === code; });
+    var body = rows.map(function (r) {
+      return '<tr><td>' + escapeHtml(r.date || '') + '</td><td>' + escapeHtml(r.vendor || '') + '</td><td>' + escapeHtml(r.item || '') + '</td><td>' + escapeHtml(r.account || '') + '</td>' +
+        numCell(r.amount) + numCell(r.tax) + numCell(r.total) + '</tr>';
+    }).join('');
+    return '<div class="detail-wrap"><table class="data-table"><thead><tr><th>일자</th><th>거래처</th><th>품목</th><th>계정과목</th><th class="num">공급가액</th><th class="num">부가세</th><th class="num">합계</th></tr></thead><tbody>' + body + '</tbody></table></div>';
   }
 
   // ============================================================
