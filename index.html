@@ -173,6 +173,47 @@
     header.topbar { background: #fff !important; color: #000 !important; border-bottom: 2px solid #000; }
     .card { box-shadow: none; border: 1px solid #ccc; }
     body { background: #fff; }
+    .collapsible-body.collapsed { display: block !important; }
+  }
+
+  /* v2.1: STEP 3 매출대사 모듈 */
+  .step-toggle-btn {
+    background: transparent; border: 1px solid var(--main); color: var(--main);
+    border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+  }
+  .collapsible-body.collapsed { display: none; }
+  .sub-card {
+    border: 1px solid #E2E6ED; border-radius: 8px; padding: 14px 16px; margin-top: 14px; background: #FAFBFD;
+  }
+  .sub-card h4 {
+    margin: 0 0 10px; font-size: 13px; color: var(--main);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  textarea.paste-area {
+    width: 100%; min-height: 110px; padding: 10px; border: 1px solid #D5D9E0; border-radius: 6px;
+    font-family: 'Consolas', monospace; font-size: 12px; resize: vertical;
+  }
+  .manual-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 10px; }
+  .manual-grid .field label { display: block; font-size: 12px; color: #555; margin-bottom: 4px; }
+  .manual-grid .field input, .manual-grid .field select {
+    width: 100%; padding: 8px 10px; border: 1px solid #D5D9E0; border-radius: 6px;
+    text-align: right; font-variant-numeric: tabular-nums;
+  }
+  .manual-grid .field select { text-align: left; }
+  table.data-table td.diff-hl { background: #FBF3DD; }
+  table.data-table input.cell-input {
+    width: 100%; border: 1px solid #D5D9E0; border-radius: 4px; padding: 4px 6px;
+    text-align: right; font-variant-numeric: tabular-nums;
+  }
+  table.data-table select.cell-select { border: 1px solid #D5D9E0; border-radius: 4px; padding: 4px 6px; }
+  .badge-over {
+    color: #fff; background: var(--danger); border-radius: 4px; padding: 1px 6px; font-size: 11px; margin-left: 6px;
+  }
+  .calc-result-line { margin-top: 8px; font-size: 13px; }
+  .calc-result-line b { color: var(--main); }
+  .small-btn {
+    background: #fff; border: 1px solid var(--main); color: var(--main); border-radius: 6px;
+    padding: 6px 12px; font-size: 12px; cursor: pointer;
   }
 </style>
 </head>
@@ -243,9 +284,74 @@
     </div>
   </section>
 
-  <!-- STEP 3 -->
+  <!-- STEP 3 (v2.1) -->
+  <section class="card" id="step3RevCard" style="display:none;">
+    <h2 style="display:flex;align-items:center;justify-content:space-between;">
+      <span>STEP 3. 매출대사 (외부자료)</span>
+      <button class="step-toggle-btn no-print" id="btnToggleStep3Rev" type="button">접기</button>
+    </h2>
+    <div id="step3RevBody" class="collapsible-body">
+
+      <!-- 3A -->
+      <div class="sub-card">
+        <h4><span>3A. 홈택스 판매대행 매출자료 붙여넣기</span></h4>
+        <div class="note-text" style="margin-top:0;">홈택스 &gt; 신용카드·판매대행 매출자료 조회 화면의 표를 복사해 붙여넣으세요 (부가세 포함, 현금영수증 제외 자료)</div>
+        <textarea class="paste-area no-print" id="hometaxPasteArea" placeholder="홈택스 표를 그대로 붙여넣기 (Ctrl+V)"></textarea>
+        <div class="no-print" style="margin-top:8px;"><button class="primary-btn" id="btnParseHometax" type="button">파싱</button></div>
+        <div id="hometaxParseResult"></div>
+      </div>
+
+      <!-- 3B -->
+      <div class="sub-card">
+        <h4><span>3B. 수기 입력 (전부 공급대가 기준)</span></h4>
+        <div class="manual-grid no-print" id="manualInputPanel"></div>
+      </div>
+
+      <!-- 3C -->
+      <div class="sub-card">
+        <h4><span>3C. 판매대행 정리표</span><button class="small-btn no-print" id="btnAddAgencyRow" type="button">행 추가</button></h4>
+        <div id="agencyTableWrap"></div>
+      </div>
+
+      <!-- 3D -->
+      <div class="sub-card">
+        <h4><span>3D. 매출대사표</span></h4>
+        <div id="salesReconTableWrap"></div>
+        <div class="note-text">※ 판매대행 현금영수증분은 홈택스 현금영수증 총액에 이미 포함(자료 자체가 현금영수증 제외) — 중복 분류로 이중계상 방지</div>
+      </div>
+
+      <!-- 3E -->
+      <div class="sub-card">
+        <h4><span>3E-1. 의제매입세액 계산기</span><button class="step-toggle-btn no-print" id="btnToggleDeemed" type="button">펼치기</button></h4>
+        <div id="deemedBody" class="collapsible-body collapsed">
+          <div class="manual-grid no-print" id="deemedInputPanel"></div>
+          <div id="deemedResult"></div>
+          <div class="note-text">확정신고 기준(6개월 과표). 예정신고 기공제 차감·정밀검증은 별도 확인</div>
+        </div>
+      </div>
+
+      <div class="sub-card">
+        <h4><span>3E-2. 신용카드매출전표등 발행세액공제 계산기</span><button class="step-toggle-btn no-print" id="btnToggleCardCredit" type="button">펼치기</button></h4>
+        <div id="cardCreditBody" class="collapsible-body collapsed">
+          <div id="cardCreditWarn"></div>
+          <div class="manual-grid no-print" id="cardCreditInputPanel"></div>
+          <div id="cardCreditResult"></div>
+          <div class="note-text">직전연도 공급가액 10억 초과 개인사업자 제외</div>
+        </div>
+      </div>
+
+      <!-- 3F -->
+      <div class="sub-card">
+        <h4><span>3F. 현금매출 비율 참고</span></h4>
+        <div id="cashRatioResult"></div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- STEP 4 -->
   <section class="card" id="step3Card" style="display:none;">
-    <h2>STEP 3. AI 공제·불공제 스크리닝</h2>
+    <h2>STEP 4. AI 공제·불공제 스크리닝</h2>
     <div class="no-print" id="step3Controls">
       <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
         <input type="checkbox" id="maskVendor"> 거래처명 마스킹 (앞 2자 + ***)
@@ -460,6 +566,190 @@ function parseLedger(rows2D) {
     totals: totals,
   };
 }
+
+// ============================================================
+// v2.1: 홈택스 판매대행 매출자료 파서 + 판매대행 인식액 계산 + 세액공제 계산기
+// (모두 순수 함수 — DOM/window 의존 금지)
+// ============================================================
+
+// §9.2 별칭·분류 매핑표 (부분일치 includes, 긴 키가 앞에 오도록 순서 고정 — 카카오스타일이 카카오보다 먼저)
+var AGENCY_ALIAS_TABLE = [
+  { key: '우아한형제들', alias: '배민', etcDefaultCls: '카과' },
+  { key: '위대한상상', alias: '요기요', etcDefaultCls: '카과' },
+  { key: '쿠팡', alias: '쿠팡', etcDefaultCls: '카과' },
+  { key: '신한은행', alias: '땡겨요', etcDefaultCls: '카과' },
+  { key: '비바리퍼블리카', alias: '토스', etcDefaultCls: '카과' },
+  { key: '카카오스타일', alias: '카카오스타일', etcDefaultCls: '건별' },
+  { key: '카카오', alias: '카카오페이', etcDefaultCls: '건별' },
+  { key: '네이버파이낸셜', alias: '네이버', etcDefaultCls: '건별' },
+  { key: '하고하우스', alias: '하고하우스', etcDefaultCls: '건별' },
+  { key: '즐거운', alias: '즐거운페이먼트', etcDefaultCls: '카과' },
+];
+
+function resolveAgencyAlias(name) {
+  var n = (name === null || name === undefined) ? '' : String(name);
+  for (var i = 0; i < AGENCY_ALIAS_TABLE.length; i++) {
+    if (n.indexOf(AGENCY_ALIAS_TABLE[i].key) !== -1) return AGENCY_ALIAS_TABLE[i];
+  }
+  return { key: null, alias: n, etcDefaultCls: '카과' };
+}
+
+// §9.2 홈택스 판매대행 매출자료 파서 (TSV 붙여넣기 텍스트)
+function parseHometaxAgency(text) {
+  var YM_RE = /^\d{4}[-./]?(0[1-9]|1[0-2])$/;
+
+  function parseNumericCell(s) {
+    if (s === null || s === undefined) return null;
+    var cleaned = String(s).replace(/[,\s]/g, '');
+    if (cleaned === '' || !/^-?\d+$/.test(cleaned)) return null;
+    var n = parseInt(cleaned, 10);
+    return isNaN(n) ? null : n;
+  }
+
+  var lines = (text || '').split(/\r?\n/);
+  var rows = [];
+  var byAgency = {};
+  var totals = { count: 0, sum: 0, card: 0, etc: 0 };
+  var skipped = 0;
+
+  lines.forEach(function (line) {
+    if (!line) return;
+    var cells = line.split('\t').map(function (c) {
+      return (c === null || c === undefined) ? '' : String(c).trim();
+    });
+
+    // 승인년월 패턴 셀 탐색
+    var ymIdx = -1;
+    for (var i = 0; i < cells.length; i++) {
+      if (YM_RE.test(cells[i])) { ymIdx = i; break; }
+    }
+    if (ymIdx === -1) return; // 데이터 행 아님 (제목/헤더/공백 행)
+
+    // 마지막 non-empty 셀
+    var lastIdx = -1;
+    for (var j = cells.length - 1; j >= 0; j--) {
+      if (cells[j] !== '') { lastIdx = j; break; }
+    }
+    if (lastIdx === -1) return;
+    var lastCell = cells[lastIdx];
+
+    // 합계/누계 포함 행 스킵
+    var hasSumMarker = cells.some(function (c) { return c.indexOf('합계') !== -1 || c.indexOf('누계') !== -1; });
+    if (hasSumMarker) return;
+
+    // 마지막 셀이 숫자면 업체명 행이 아님
+    if (parseNumericCell(lastCell) !== null) return;
+
+    // 승인년월 셀 이후의 숫자 셀을 순서대로 건수/계/신용카드/기타결제수단으로
+    var nums = [];
+    for (var k = ymIdx + 1; k < cells.length; k++) {
+      var v = parseNumericCell(cells[k]);
+      if (v !== null) nums.push(v);
+    }
+    if (nums.length < 4) { skipped++; return; }
+
+    var count = nums[0], sum = nums[1], card = nums[2], etc = nums[3];
+    var agency = lastCell; // trim은 위 map 단계에서 이미 처리됨
+
+    rows.push({ agency: agency, yearMonth: cells[ymIdx], count: count, sum: sum, card: card, etc: etc });
+
+    if (!byAgency[agency]) byAgency[agency] = { count: 0, card: 0, etc: 0 };
+    byAgency[agency].count += count;
+    byAgency[agency].card += card;
+    byAgency[agency].etc += etc;
+
+    totals.count += count;
+    totals.sum += sum;
+    totals.card += card;
+    totals.etc += etc;
+  });
+
+  return { rows: rows, byAgency: byAgency, totals: totals, skipped: skipped };
+}
+
+// §9.3 판매대행 정리표 인식액 계산 (업체×분류 그룹 MAX)
+function computeAgencyRecognition(rows) {
+  var groupMap = {};
+  var order = [];
+  (rows || []).forEach(function (r, i) {
+    var settle = (r.settle === null || r.settle === undefined) ? 0 : r.settle;
+    var hometax = (r.hometax === null || r.hometax === undefined) ? 0 : r.hometax;
+    var key = r.agency + '\u0001' + r.cls;
+    if (!groupMap[key]) {
+      groupMap[key] = { agency: r.agency, cls: r.cls, sumSettle: 0, sumHometax: 0, firstIndex: i };
+      order.push(key);
+    }
+    groupMap[key].sumSettle += settle;
+    groupMap[key].sumHometax += hometax;
+  });
+
+  var groups = order.map(function (key) {
+    var g = groupMap[key];
+    g.recognition = (g.cls === '중복') ? 0 : Math.max(g.sumSettle, g.sumHometax);
+    return g;
+  });
+
+  var byCls = { 카과: 0, 건별: 0, 현금: 0 };
+  groups.forEach(function (g) {
+    if (Object.prototype.hasOwnProperty.call(byCls, g.cls)) byCls[g.cls] += g.recognition;
+  });
+  var total = byCls['카과'] + byCls['건별'] + byCls['현금'];
+
+  return { groups: groups, byCls: byCls, total: total };
+}
+
+// §9.4 의제매입세액 계산기
+function computeDeemedInputTax(params) {
+  params = params || {};
+  var exemptPurchase = Number(params.exemptPurchase) || 0;
+  var deduction = Number(params.deduction) || 0;
+  var taxBase = Number(params.taxBase) || 0;
+  var mode = params.mode;
+
+  var limitRate, numerator, denominator;
+  if (mode === 'individual') {
+    if (taxBase <= 100000000) limitRate = 0.75;
+    else if (taxBase <= 200000000) limitRate = 0.70;
+    else limitRate = 0.60;
+    if (taxBase <= 200000000) { numerator = 9; denominator = 109; }
+    else { numerator = 8; denominator = 108; }
+  } else if (mode === 'corp') {
+    limitRate = 0.50;
+    numerator = 6;
+    denominator = 106;
+  } else {
+    limitRate = (Number(params.manualLimitRatePct) || 0) / 100;
+    numerator = Number(params.manualNumerator) || 0;
+    denominator = Number(params.manualDenominator) || 1;
+  }
+
+  var agriPurchase = exemptPurchase - deduction;
+  var limitAmount = taxBase * limitRate;
+  var base = Math.min(agriPurchase, limitAmount);
+  var tax = Math.floor(base * numerator / denominator);
+  var overLimit = agriPurchase > limitAmount;
+
+  return {
+    limitRate: limitRate, numerator: numerator, denominator: denominator,
+    agriPurchase: agriPurchase, limitAmount: limitAmount, base: base, tax: tax, overLimit: overLimit,
+  };
+}
+
+// §9.5 신용카드매출전표등 발행세액공제 계산기
+function computeCardIssuanceCredit(params) {
+  params = params || {};
+  var base = Number(params.base) || 0;
+  var rate = Number(params.rate) || 0;
+  var annualLimit = Number(params.annualLimit) || 0;
+  var priorCredit = Number(params.priorCredit) || 0;
+
+  var creditAmount = Math.floor(base * rate);
+  var remainingLimit = annualLimit - priorCredit;
+  var applied = Math.min(creditAmount, remainingLimit);
+  var overLimit = creditAmount > remainingLimit;
+
+  return { creditAmount: creditAmount, remainingLimit: remainingLimit, applied: applied, overLimit: overLimit };
+}
 </script>
 
 <!-- ============================================================
@@ -539,8 +829,13 @@ function parseLedger(rows2D) {
   var state = {
     ledger: null,       // parseLedger() 결과
     reconResults: [],   // STEP2 계산 결과
-    aiResult: null,      // STEP3 API 응답 파싱 결과
+    aiResult: null,      // STEP4 API 응답 파싱 결과
     aiTruncated: false,
+    hometax: null,        // v2.1: parseHometaxAgency() 결과
+    agencyRows: [],        // v2.1: 3C 판매대행 정리표 행
+    salesRecon: [],         // v2.1: 3D 매출대사표 결과
+    deemedResult: null,      // v2.1: 3E-1 의제매입세액 계산 결과
+    cardCreditResult: null,   // v2.1: 3E-2 신카발행세액공제 계산 결과
   };
 
   // ---- 유틸 ----
@@ -639,12 +934,29 @@ function parseLedger(rows2D) {
         computeAndRenderRecon();
         updateCostEstimate();
         renderSummary();
+
+        // v2.1: STEP 3 매출대사 모듈 초기화
+        state.hometax = null;
+        state.agencyRows = [];
+        $('hometaxPasteArea').value = '';
+        $('hometaxParseResult').innerHTML = '';
+        $('step3RevCard').style.display = '';
+        renderManualInputPanel();
+        renderAgencyTable();
+        renderDeemedInputPanel();
+        setDeemedDefaults();
+        computeAndRenderDeemed();
+        renderCardCreditInputPanel();
+        setCardCreditDefaults();
+        computeAndRenderCardCredit();
+        computeAndRenderSalesRecon();
       } catch (err) {
         state.ledger = null;
         $('step1Result').innerHTML = '<div class="error-box">파싱 실패: ' + escapeHtml(err.message) + '</div>';
         $('step2Card').style.display = 'none';
         $('step3Card').style.display = 'none';
         $('summaryCard').style.display = 'none';
+        $('step3RevCard').style.display = 'none';
       }
     };
     reader.readAsArrayBuffer(file);
@@ -749,7 +1061,337 @@ function parseLedger(rows2D) {
   }
 
   // ============================================================
-  // STEP 3: AI 스크리닝
+  // STEP 3 (v2.1): 매출대사 (외부자료)
+  // ============================================================
+  var MANUAL_FIELDS = [
+    { key: 'mCard', label: '일반 신용카드(단말기, 대행분 제외)' },
+    { key: 'mZeropay', label: '제로페이' },
+    { key: 'mCashReceipt', label: '현금영수증 총액' },
+    { key: 'mCashSales', label: '현금매출' },
+    { key: 'mNoBank', label: '무통장입금·환불액' },
+    { key: 'mDeemedRent', label: '간주임대료' },
+    { key: 'mExportZero', label: '수출·영세율' },
+  ];
+  var CLS_OPTIONS = ['카과', '건별', '현금', '중복'];
+
+  function toggleCollapsible(bodyId, btnEl) {
+    var body = $(bodyId);
+    body.classList.toggle('collapsed');
+    btnEl.textContent = body.classList.contains('collapsed') ? '펼치기' : '접기';
+  }
+  $('btnToggleStep3Rev').addEventListener('click', function () { toggleCollapsible('step3RevBody', this); });
+  $('btnToggleDeemed').addEventListener('click', function () { toggleCollapsible('deemedBody', this); });
+  $('btnToggleCardCredit').addEventListener('click', function () { toggleCollapsible('cardCreditBody', this); });
+
+  function attachCommaInputLocal(inputEl, onChange) {
+    inputEl.addEventListener('input', function () {
+      var raw = inputEl.value.replace(/[^0-9-]/g, '');
+      var neg = raw.indexOf('-') === 0;
+      var digits = raw.replace(/-/g, '').replace(/^0+(?=\d)/, '');
+      inputEl.value = (neg ? '-' : '') + (digits ? Number(digits).toLocaleString('ko-KR') : '');
+      onChange();
+    });
+  }
+
+  // ---- 3B: 수기 입력칸 ----
+  function renderManualInputPanel() {
+    var panel = $('manualInputPanel');
+    panel.innerHTML = MANUAL_FIELDS.map(function (f) {
+      return '<div class="field"><label for="' + f.key + '">' + escapeHtml(f.label) + '</label>' +
+        '<input type="text" id="' + f.key + '" placeholder="공란 허용"></div>';
+    }).join('');
+    MANUAL_FIELDS.forEach(function (f) {
+      attachCommaInputLocal($(f.key), computeAndRenderSalesRecon);
+    });
+  }
+
+  // ---- 3A: 홈택스 판매대행 매출자료 파싱 ----
+  $('btnParseHometax').addEventListener('click', function () {
+    var text = $('hometaxPasteArea').value;
+    var result = parseHometaxAgency(text);
+    state.hometax = result;
+    rebuildAgencyRowsFromHometax(result);
+    renderHometaxParseResult(result);
+    renderAgencyTable();
+    computeAndRenderSalesRecon();
+  });
+
+  function renderHometaxParseResult(result) {
+    var box = $('hometaxParseResult');
+    if (!result) { box.innerHTML = ''; return; }
+    var agencies = Object.keys(result.byAgency);
+    var rowsHtml = agencies.map(function (name) {
+      var a = result.byAgency[name];
+      var alias = resolveAgencyAlias(name).alias;
+      return '<tr><td>' + escapeHtml(name) + '</td><td>' + escapeHtml(alias) + '</td>' +
+        numCell(a.count) + numCell(a.card) + numCell(a.etc) + '</tr>';
+    }).join('');
+    var html = '<table class="data-table"><thead><tr><th>대행업체</th><th>별칭</th><th class="num">건수</th><th class="num">신용카드</th><th class="num">기타결제수단</th></tr></thead>' +
+      '<tbody>' + (rowsHtml || '<tr><td colspan="5">인식된 업체 없음</td></tr>') + '</tbody></table>';
+    html += '<div class="meta-line">인식 데이터 행 ' + result.rows.length + '건';
+    if (result.skipped > 0) html += ' · <span class="neg">인식 실패 ' + result.skipped + '건</span>';
+    html += '</div>';
+    box.innerHTML = html;
+  }
+
+  function rebuildAgencyRowsFromHometax(result) {
+    var rows = [];
+    Object.keys(result.byAgency).forEach(function (name) {
+      var a = result.byAgency[name];
+      var aliasInfo = resolveAgencyAlias(name);
+      rows.push({ agency: name, kind: '신용카드', settle: null, hometax: a.card, cls: '카과', manual: false });
+      rows.push({ agency: name, kind: '기타결제수단', settle: null, hometax: a.etc, cls: aliasInfo.etcDefaultCls, manual: false });
+    });
+    state.agencyRows = rows;
+  }
+
+  // ---- 3C: 판매대행 정리표 ----
+  $('btnAddAgencyRow').addEventListener('click', function () {
+    state.agencyRows.push({ agency: '', kind: '', settle: null, hometax: 0, cls: '카과', manual: true });
+    renderAgencyTable();
+    computeAndRenderSalesRecon();
+  });
+
+  function renderAgencyTable() {
+    var wrap = $('agencyTableWrap');
+    var rows = state.agencyRows;
+    if (!rows.length) { wrap.innerHTML = '<div class="note-text">3A에서 홈택스 자료를 파싱하거나 [행 추가]로 항목을 입력하세요.</div>'; return; }
+
+    var recon = computeAgencyRecognition(rows);
+    var recogByFirstIndex = {};
+    recon.groups.forEach(function (g) { recogByFirstIndex[g.firstIndex] = g.recognition; });
+
+    var bodyHtml = rows.map(function (r, i) {
+      var diff = (r.settle === null || r.settle === undefined) ? null : (r.settle - (r.hometax || 0));
+      var diffCell;
+      if (diff === null) {
+        diffCell = '<td class="num">—</td>';
+      } else {
+        diffCell = numCell(diff);
+        if (diff !== 0) diffCell = diffCell.replace('<td class="num"', '<td class="num diff-hl"');
+      }
+      var agencyCell = r.manual
+        ? '<td><input type="text" class="cell-input" data-role="agency" data-idx="' + i + '" value="' + escapeHtml(r.agency) + '" style="text-align:left;"></td>'
+        : '<td>' + escapeHtml(r.agency) + '(' + escapeHtml(resolveAgencyAlias(r.agency).alias) + ')</td>';
+      var kindCell = r.manual
+        ? '<td><input type="text" class="cell-input" data-role="kind" data-idx="' + i + '" value="' + escapeHtml(r.kind) + '" style="text-align:left;"></td>'
+        : '<td>' + escapeHtml(r.kind) + '</td>';
+      var settleCell = '<td><input type="text" class="cell-input" data-role="settle" data-idx="' + i + '" value="' + (r.settle === null ? '' : fmtNum(r.settle)) + '" placeholder="공란"></td>';
+      var clsCell = '<td><select class="cell-select" data-role="cls" data-idx="' + i + '">' +
+        CLS_OPTIONS.map(function (c) { return '<option value="' + c + '"' + (c === r.cls ? ' selected' : '') + '>' + c + '</option>'; }).join('') +
+        '</select></td>';
+      var recog = recogByFirstIndex.hasOwnProperty(i) ? recogByFirstIndex[i] : null;
+      var recogCell = (recog === null) ? '<td class="num"></td>' : numCell(recog);
+      return '<tr>' + agencyCell + kindCell + settleCell + numCell(r.hometax || 0) + diffCell + clsCell + recogCell + '</tr>';
+    }).join('');
+
+    var subtotalHtml = '<tr class="subtotal"><td colspan="6">소계 — 카과 ' + fmtNum(recon.byCls['카과']) + ' / 건별 ' + fmtNum(recon.byCls['건별']) + ' / 현금 ' + fmtNum(recon.byCls['현금']) + ' / 총계</td>' + numCell(recon.total) + '</tr>';
+
+    wrap.innerHTML = '<table class="data-table"><thead><tr>' +
+      '<th>업체(별칭)</th><th>구분</th><th class="num">정산자료(수기)</th><th class="num">홈택스(자동)</th><th class="num">차이</th><th>분류</th><th class="num">인식액</th>' +
+      '</tr></thead><tbody>' + bodyHtml + subtotalHtml + '</tbody></table>';
+
+    Array.prototype.forEach.call(wrap.querySelectorAll('input.cell-input[data-role="settle"]'), function (el) {
+      el.addEventListener('input', function () {
+        var raw = el.value.replace(/[^0-9-]/g, '');
+        var neg = raw.indexOf('-') === 0;
+        var digits = raw.replace(/-/g, '').replace(/^0+(?=\d)/, '');
+        el.value = (neg ? '-' : '') + (digits ? Number(digits).toLocaleString('ko-KR') : '');
+        var v = el.value.replace(/,/g, '').trim();
+        state.agencyRows[Number(el.dataset.idx)].settle = (v === '' || v === '-') ? null : parseInt(v, 10);
+      });
+      el.addEventListener('change', function () { renderAgencyTable(); computeAndRenderSalesRecon(); });
+    });
+    Array.prototype.forEach.call(wrap.querySelectorAll('input.cell-input[data-role="agency"]'), function (el) {
+      el.addEventListener('input', function () { state.agencyRows[Number(el.dataset.idx)].agency = el.value; });
+      el.addEventListener('change', function () { renderAgencyTable(); computeAndRenderSalesRecon(); });
+    });
+    Array.prototype.forEach.call(wrap.querySelectorAll('input.cell-input[data-role="kind"]'), function (el) {
+      el.addEventListener('input', function () { state.agencyRows[Number(el.dataset.idx)].kind = el.value; });
+      el.addEventListener('change', function () { renderAgencyTable(); computeAndRenderSalesRecon(); });
+    });
+    Array.prototype.forEach.call(wrap.querySelectorAll('select.cell-select[data-role="cls"]'), function (el) {
+      el.addEventListener('change', function () {
+        state.agencyRows[Number(el.dataset.idx)].cls = el.value;
+        renderAgencyTable();
+        computeAndRenderSalesRecon();
+      });
+    });
+  }
+
+  // ---- 3D: 매출대사표 + 3F: 현금매출 비율 ----
+  function computeAndRenderSalesRecon() {
+    if (!state.ledger) return;
+    var byType = state.ledger.byType;
+    function led(codes) {
+      return codes.reduce(function (s, c) {
+        var t = byType[c];
+        return s + (t ? (t.amount + t.tax) : 0);
+      }, 0);
+    }
+    var recon = computeAgencyRecognition(state.agencyRows || []);
+    var byCls = recon.byCls;
+
+    var mCard = readInputNumber('mCard') || 0;
+    var mZeropay = readInputNumber('mZeropay') || 0;
+    var mCashReceipt = readInputNumber('mCashReceipt') || 0;
+    var mCashSales = readInputNumber('mCashSales') || 0;
+    var mNoBank = readInputNumber('mNoBank') || 0;
+    var mDeemedRent = readInputNumber('mDeemedRent') || 0;
+    var mExportZero = readInputNumber('mExportZero') || 0;
+
+    var rows = [
+      { label: '카과', agg: mCard + mZeropay + byCls['카과'], ledger: led([17]) },
+      { label: '현과', agg: mCashReceipt, ledger: led([22]) },
+      { label: '건별', agg: mCashSales + mNoBank + mDeemedRent + byCls['건별'] + byCls['현금'], ledger: led([14]) },
+      { label: '세금계산서(과세)', agg: led([11]), ledger: led([11]), ref: true },
+      { label: '영세·수출', agg: mExportZero, ledger: led([12, 16]) },
+    ];
+    rows.forEach(function (r) { r.diff = r.agg - r.ledger; });
+    state.salesRecon = rows;
+
+    var totalAgg = rows.reduce(function (s, r) { return s + r.agg; }, 0);
+    var totalLedger = rows.reduce(function (s, r) { return s + r.ledger; }, 0);
+    var totalDiff = totalAgg - totalLedger;
+
+    var bodyHtml = rows.map(function (r) {
+      var judgeHtml = r.ref ? '<span class="badge-skip">—</span>' : (r.diff === 0 ? '<span class="badge-ok">적정</span>' : '<span class="badge-check">확인필요</span>');
+      return '<tr><td>' + escapeHtml(r.label) + '</td>' + numCell(r.agg) + numCell(r.ledger) + numCell(r.diff) + '<td>' + judgeHtml + '</td></tr>';
+    }).join('');
+    var totalJudge = (totalDiff === 0) ? '<span class="badge-ok">적정</span>' : '<span class="badge-check">확인필요</span>';
+    bodyHtml += '<tr class="subtotal"><td>합계</td>' + numCell(totalAgg) + numCell(totalLedger) + numCell(totalDiff) + '<td>' + totalJudge + '</td></tr>';
+
+    $('salesReconTableWrap').innerHTML = '<table class="data-table"><thead><tr><th>분류</th><th class="num">집계(외부자료)</th><th class="num">장부(공급대가)</th><th class="num">차이</th><th>판정</th></tr></thead><tbody>' + bodyHtml + '</tbody></table>';
+
+    // 3F 현금매출 비율 참고
+    var cashLike = mCashSales + byCls['현금'];
+    var cardLedger = led([17]);
+    var ratioHtml = '<p>현금성매출(현금매출 입력 + 인식액(현금)) = ' + fmtNum(cashLike) + ' &nbsp;÷&nbsp; 장부 [17] 카과 공급대가 = ' + fmtNum(cardLedger) + '</p>';
+    ratioHtml += '<p><b>' + (cardLedger !== 0 ? (cashLike / cardLedger * 100).toFixed(1) + '%' : '계산 불가(분모 0)') + '</b> (참고용, 판정 없음)</p>';
+    $('cashRatioResult').innerHTML = ratioHtml;
+
+    renderSummary();
+  }
+
+  // ---- 3E-1: 의제매입세액 계산기 ----
+  function renderDeemedInputPanel() {
+    var panel = $('deemedInputPanel');
+    panel.innerHTML =
+      '<div class="field"><label for="deemedExempt">면세매입액</label><input type="text" id="deemedExempt"></div>' +
+      '<div class="field"><label for="deemedDeduction">농수산물 외 차감액</label><input type="text" id="deemedDeduction"></div>' +
+      '<div class="field"><label for="deemedBase">과세표준</label><input type="text" id="deemedBase"></div>' +
+      '<div class="field"><label for="deemedMode">유형</label><select id="deemedMode">' +
+      '<option value="individual">개인 음식점</option><option value="corp">법인 음식점</option><option value="manual">직접 입력</option>' +
+      '</select></div>' +
+      '<div class="field" id="deemedManualRateField" style="display:none;"><label for="deemedManualRate">한도율(%)</label><input type="text" id="deemedManualRate"></div>' +
+      '<div class="field" id="deemedManualFracField" style="display:none;"><label for="deemedManualFrac">공제율</label><select id="deemedManualFrac">' +
+      '<option value="2/102">2/102</option><option value="4/104">4/104</option><option value="6/106">6/106</option><option value="8/108">8/108</option><option value="9/109">9/109</option>' +
+      '</select></div>';
+
+    ['deemedExempt', 'deemedDeduction', 'deemedBase'].forEach(function (id) {
+      attachCommaInputLocal($(id), computeAndRenderDeemed);
+    });
+    $('deemedMode').addEventListener('change', function () {
+      var manual = $('deemedMode').value === 'manual';
+      $('deemedManualRateField').style.display = manual ? '' : 'none';
+      $('deemedManualFracField').style.display = manual ? '' : 'none';
+      computeAndRenderDeemed();
+    });
+    $('deemedManualRate').addEventListener('input', function () {
+      $('deemedManualRate').value = $('deemedManualRate').value.replace(/[^0-9.]/g, '');
+      computeAndRenderDeemed();
+    });
+    $('deemedManualFrac').addEventListener('change', computeAndRenderDeemed);
+
+    $('deemedMode').value = ($('bizType').value === '법인') ? 'corp' : 'individual';
+  }
+
+  function setDeemedDefaults() {
+    if (!state.ledger) return;
+    var byType = state.ledger.byType;
+    var exemptDefault = [53, 58, 60, 62].reduce(function (s, c) { return s + (byType[c] ? byType[c].amount : 0); }, 0);
+    var baseDefault = state.ledger.totals.sales.amount;
+    $('deemedExempt').value = fmtNum(exemptDefault);
+    $('deemedBase').value = fmtNum(baseDefault);
+  }
+
+  function computeAndRenderDeemed() {
+    if (!state.ledger) return;
+    var mode = $('deemedMode').value;
+    var params = {
+      exemptPurchase: readInputNumber('deemedExempt') || 0,
+      deduction: readInputNumber('deemedDeduction') || 0,
+      taxBase: readInputNumber('deemedBase') || 0,
+      mode: mode,
+    };
+    if (mode === 'manual') {
+      params.manualLimitRatePct = parseFloat($('deemedManualRate').value) || 0;
+      var frac = $('deemedManualFrac').value.split('/');
+      params.manualNumerator = Number(frac[0]);
+      params.manualDenominator = Number(frac[1]);
+    }
+    var r = computeDeemedInputTax(params);
+    state.deemedResult = r;
+    var html = '<div class="calc-result-line">농수산물 등 매입액 = <b>' + fmtNum(r.agriPurchase) + '</b></div>' +
+      '<div class="calc-result-line">한도(과표×' + (r.limitRate * 100).toFixed(0) + '%) = <b>' + fmtNum(Math.round(r.limitAmount)) + '</b>' +
+      (r.overLimit ? '<span class="badge-over">한도초과</span>' : '') + '</div>' +
+      '<div class="calc-result-line">공제대상 = <b>' + fmtNum(r.base) + '</b> · 공제율 ' + r.numerator + '/' + r.denominator + '</div>' +
+      '<div class="calc-result-line">의제매입세액 = <b>' + fmtNum(r.tax) + '</b></div>';
+    $('deemedResult').innerHTML = html;
+    renderSummary();
+  }
+
+  // ---- 3E-2: 신용카드매출전표등 발행세액공제 계산기 ----
+  function renderCardCreditInputPanel() {
+    var panel = $('cardCreditInputPanel');
+    panel.innerHTML =
+      '<div class="field"><label for="ccBase">대상 공급대가</label><input type="text" id="ccBase"></div>' +
+      '<div class="field"><label for="ccRate">공제율(%)</label><input type="text" id="ccRate" value="1.3"></div>' +
+      '<div class="field"><label for="ccLimit">연간 한도</label><input type="text" id="ccLimit" value="10,000,000"></div>' +
+      '<div class="field"><label for="ccPrior">기공제액</label><input type="text" id="ccPrior"></div>';
+
+    attachCommaInputLocal($('ccBase'), computeAndRenderCardCredit);
+    attachCommaInputLocal($('ccLimit'), computeAndRenderCardCredit);
+    attachCommaInputLocal($('ccPrior'), computeAndRenderCardCredit);
+    $('ccRate').addEventListener('input', function () {
+      $('ccRate').value = $('ccRate').value.replace(/[^0-9.]/g, '');
+      computeAndRenderCardCredit();
+    });
+
+    $('cardCreditWarn').innerHTML = ($('bizType').value === '법인') ? '<div class="error-box">법인은 적용 불가</div>' : '';
+  }
+
+  function setCardCreditDefaults() {
+    if (!state.ledger) return;
+    var byType = state.ledger.byType;
+    var base = [17, 22].reduce(function (s, c) { return s + (byType[c] ? byType[c].amount + byType[c].tax : 0); }, 0);
+    $('ccBase').value = fmtNum(base);
+  }
+
+  function computeAndRenderCardCredit() {
+    if (!state.ledger) return;
+    var params = {
+      base: readInputNumber('ccBase') || 0,
+      rate: (parseFloat($('ccRate').value) || 0) / 100,
+      annualLimit: readInputNumber('ccLimit') || 0,
+      priorCredit: readInputNumber('ccPrior') || 0,
+    };
+    var r = computeCardIssuanceCredit(params);
+    state.cardCreditResult = r;
+    var html = '<div class="calc-result-line">공제액(대상×공제율) = <b>' + fmtNum(r.creditAmount) + '</b></div>' +
+      '<div class="calc-result-line">잔여한도 = <b>' + fmtNum(r.remainingLimit) + '</b></div>' +
+      '<div class="calc-result-line">반영액 = <b>' + fmtNum(r.applied) + '</b>' + (r.overLimit ? '<span class="badge-over">한도초과</span>' : '') + '</div>';
+    $('cardCreditResult').innerHTML = html;
+    renderSummary();
+  }
+
+  $('bizType').addEventListener('change', function () {
+    var warn = $('cardCreditWarn');
+    if (warn) warn.innerHTML = ($('bizType').value === '법인') ? '<div class="error-box">법인은 적용 불가</div>' : '';
+  });
+
+  // ============================================================
+  // STEP 4: AI 스크리닝
   // ============================================================
   function buildAiPayload() {
     var ledger = state.ledger;
@@ -951,11 +1593,27 @@ function parseLedger(rows2D) {
 
     var r43val = state.ledger ? readInputNumber(R43.key) : null;
 
+    var reconOk = (state.salesRecon || []).filter(function (r) { return !r.ref && r.diff === 0; }).length;
+    var reconCheck = (state.salesRecon || []).filter(function (r) { return !r.ref && r.diff !== 0; }).length;
+    var agencyDiffCount = (state.agencyRows || []).filter(function (r) {
+      return r.settle !== null && r.settle !== undefined && (r.settle - (r.hometax || 0)) !== 0;
+    }).length;
+
     var html = '';
     html += '<div class="summary-block"><h3>업체 / 기간</h3><p>' + escapeHtml(companyName) + '</p><p>' + escapeHtml(period) + '</p></div>';
     html += '<div class="summary-block"><h3>STEP2 대사 판정</h3><p>적정 ' + okCount + '건 / 확인필요 ' + checkCount + '건</p>' +
       (r43val !== null ? '<p>(43) 의제매입세액 공제 세액 입력값: ' + fmtNum(r43val) + ' (장부 대응 없음, 참고용)</p>' : '') + '</div>';
-    html += '<div class="summary-block"><h3>STEP3 AI 플래그</h3><p>높음 ' + high + '건 / 보통 ' + medium + '건 / 낮음 ' + low + '건</p></div>';
+    html += '<div class="summary-block"><h3>STEP3 매출대사 판정</h3><p>적정 ' + reconOk + '건 / 확인필요 ' + reconCheck + '건</p>' +
+      '<p>판매대행 정리표 차이 발생 ' + agencyDiffCount + '건</p></div>';
+    if (state.deemedResult) {
+      html += '<div class="summary-block"><h3>의제매입세액</h3><p>' + fmtNum(state.deemedResult.tax) + '원' +
+        (state.deemedResult.overLimit ? ' (한도초과)' : '') + '</p></div>';
+    }
+    if (state.cardCreditResult) {
+      html += '<div class="summary-block"><h3>신카발행세액공제</h3><p>' + fmtNum(state.cardCreditResult.applied) + '원' +
+        (state.cardCreditResult.overLimit ? ' (한도초과)' : '') + '</p></div>';
+    }
+    html += '<div class="summary-block"><h3>STEP4 AI 플래그</h3><p>높음 ' + high + '건 / 보통 ' + medium + '건 / 낮음 ' + low + '건</p></div>';
 
     box.innerHTML = html;
   }
