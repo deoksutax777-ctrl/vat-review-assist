@@ -848,13 +848,20 @@ function lookupAgencyRegistry(name, index) {
 // 기간 창으로 거른 결과를 하류(집계·대사·계산기·AI)에 공급한다.
 // ============================================================
 
-// '2026년 1기 확정' → ['2026-01-01','2026-06-30']. 확정은 반기 전체 창(예정고지 개인 포함, 법인 4~6월 장부도 창 안).
+// '2026년 1기 확정(1~6월 전체)' → ['2026-01-01','2026-06-30']. '2026년 1기 확정(4~6월)' → ['2026-04-01','2026-06-30'] (법인 예정신고 이후 확정분만).
+// 접미사 없이 '확정'만 오면(자동인식 등) 안전한 전체 창(반기)으로 처리.
 function periodToRange(periodStr) {
-  var m = /^(\d{4})년\s*(1기|2기)\s*(예정|확정)$/.exec(String(periodStr || '').trim());
+  var m = /^(\d{4})년\s*(1기|2기)\s*(예정|확정)(?:\(([^)]*)\))?$/.exec(String(periodStr || '').trim());
   if (!m) return null;
-  var y = m[1];
-  if (m[2] === '1기') return m[3] === '예정' ? [y + '-01-01', y + '-03-31'] : [y + '-01-01', y + '-06-30'];
-  return m[3] === '예정' ? [y + '-07-01', y + '-09-30'] : [y + '-07-01', y + '-12-31'];
+  var y = m[1], suffix = m[4] || '';
+  if (m[2] === '1기') {
+    if (m[3] === '예정') return [y + '-01-01', y + '-03-31'];
+    if (suffix.indexOf('4~6') !== -1) return [y + '-04-01', y + '-06-30'];
+    return [y + '-01-01', y + '-06-30'];
+  }
+  if (m[3] === '예정') return [y + '-07-01', y + '-09-30'];
+  if (suffix.indexOf('10~12') !== -1) return [y + '-10-01', y + '-12-31'];
+  return [y + '-07-01', y + '-12-31'];
 }
 
 // parseLedger와 동일한 집계 규칙 (code < 50 → 매출)
@@ -921,13 +928,13 @@ function computeDeemedRentInterest(rows, ratePct) {
   return { items: items, total: total, vat: Math.floor(total / 10) };
 }
 
-// 장부 날짜 다수결로 과세기간 자동 인식 → '2026년 1기 확정' 형식 (예정/확정 구분은 불가 — 확정이 안전한 상위 창)
+// 장부 날짜 다수결로 과세기간 자동 인식 → '2026년 1기 확정(1~6월 전체)' 형식 (예정/확정, 법인 4~6월분 구분은 불가 — 전체 창이 안전한 기본값)
 function detectLedgerPeriod(rows) {
   var counts = {};
   rows.forEach(function (r) {
     var m = /^(\d{4})-(\d{2})/.exec(String(r.date || ''));
     if (!m) return;
-    var key = m[1] + '년 ' + ((+m[2] <= 6) ? '1기' : '2기') + ' 확정';
+    var key = (+m[2] <= 6) ? (m[1] + '년 1기 확정(1~6월 전체)') : (m[1] + '년 2기 확정(7~12월 전체)');
     counts[key] = (counts[key] || 0) + 1;
   });
   var best = null, bestN = 0;
@@ -1055,17 +1062,17 @@ function detectLedgerPeriod(rows) {
     var years = [yearNow - 1, yearNow, yearNow + 1];
     var opts = [];
     years.forEach(function (y) {
-      ['1기 예정', '1기 확정', '2기 예정', '2기 확정'].forEach(function (p) {
+      ['1기 예정', '1기 확정(4~6월)', '1기 확정(1~6월 전체)', '2기 예정', '2기 확정(10~12월)', '2기 확정(7~12월 전체)'].forEach(function (p) {
         opts.push(y + '년 ' + p);
       });
     });
     sel.innerHTML = opts.map(function (o) { return '<option value="' + o + '">' + o + '</option>'; }).join('');
-    // v2.5: 오늘 기준 직전 신고대상 기간을 기본값으로 (업로드 시 장부에서 자동 인식되면 덮어씀)
+    // v2.5: 오늘 기준 직전 신고대상 기간을 기본값으로 (업로드 시 장부에서 자동 인식되면 덮어씀). 확정은 전체(반기) 창을 기본값으로.
     var m = new Date().getMonth() + 1;
     var def;
-    if (m <= 3) def = (yearNow - 1) + '년 2기 확정';
+    if (m <= 3) def = (yearNow - 1) + '년 2기 확정(7~12월 전체)';
     else if (m <= 6) def = yearNow + '년 1기 예정';
-    else if (m <= 9) def = yearNow + '년 1기 확정';
+    else if (m <= 9) def = yearNow + '년 1기 확정(1~6월 전체)';
     else def = yearNow + '년 2기 예정';
     sel.value = def;
   }
