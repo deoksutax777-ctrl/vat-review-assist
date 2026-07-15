@@ -366,6 +366,15 @@
         <div id="cardZeropayParseResult"></div>
       </div>
 
+      <!-- 3A-3 -->
+      <div class="sub-card">
+        <h4><span>3A-3. 홈택스 현금영수증 매출 발행내역 붙여넣기</span></h4>
+        <div class="note-text" style="margin-top:0;">홈택스 &gt; 현금영수증 매출내역 조회의 발행내역 표(거래년월·건수·총금액·공급가액·세액·봉사료)를 복사해 붙여넣으세요</div>
+        <textarea class="paste-area no-print" id="cashReceiptPasteArea" placeholder="홈택스 표를 그대로 붙여넣기 (Ctrl+V)"></textarea>
+        <div class="no-print" style="margin-top:8px;"><button class="primary-btn" id="btnParseCashReceipt" type="button">파싱</button></div>
+        <div id="cashReceiptParseResult"></div>
+      </div>
+
       <!-- 3B -->
       <div class="sub-card">
         <h4><span>3B. 수기 입력 (전부 공급대가 기준)</span></h4>
@@ -801,6 +810,60 @@ function parseHometaxCardZeropay(text) {
   return { rows: rows, totals: totals, skipped: skipped, taxExemptSum: taxExemptSum };
 }
 
+// §17 현금영수증 매출 발행내역 파싱 (거래년월/거래건수/총금액/공급가액/세액/봉사료 형식)
+function parseHometaxCashReceipt(text) {
+  var YM_RE = /^\d{4}[-./]?(0[1-9]|1[0-2])$/;
+
+  function parseNumericCell(s) {
+    if (s === null || s === undefined) return null;
+    var cleaned = String(s).replace(/[,\s]/g, '');
+    if (cleaned === '' || !/^-?\d+$/.test(cleaned)) return null;
+    var n = parseInt(cleaned, 10);
+    return isNaN(n) ? null : n;
+  }
+
+  var lines = (text || '').split(/\r?\n/);
+  var rows = [];
+  var totals = { count: 0, total: 0, amount: 0, tax: 0, tip: 0 };
+  var skipped = 0;
+
+  lines.forEach(function (line) {
+    if (!line) return;
+    var cells = line.split('\t').map(function (c) {
+      return (c === null || c === undefined) ? '' : String(c).trim();
+    });
+
+    var ymIdx = -1;
+    for (var i = 0; i < cells.length; i++) {
+      if (YM_RE.test(cells[i])) { ymIdx = i; break; }
+    }
+    if (ymIdx === -1) return; // 헤더/총합계/상반기 합계 행 (거래년월 셀 없음)
+
+    // 거래년월 바로 다음 셀이 숫자(건수)여야 이 화면의 데이터 행 — 신용카드·판매대행 화면(자료구분 텍스트)과 구분
+    if (parseNumericCell(cells[ymIdx + 1]) === null) { skipped++; return; }
+
+    var nums = [];
+    for (var k = ymIdx + 1; k < cells.length; k++) {
+      var v = parseNumericCell(cells[k]);
+      if (v !== null) nums.push(v);
+    }
+    if (nums.length < 4) { skipped++; return; }
+
+    var count = nums[0], total = nums[1], amount = nums[2], tax = nums[3];
+    var tip = (nums.length > 4) ? nums[4] : 0;
+
+    rows.push({ yearMonth: cells[ymIdx], count: count, total: total, amount: amount, tax: tax, tip: tip });
+
+    totals.count += count;
+    totals.total += total;
+    totals.amount += amount;
+    totals.tax += tax;
+    totals.tip += tip;
+  });
+
+  return { rows: rows, totals: totals, skipped: skipped };
+}
+
 // §9.3 판매대행 정리표 인식액 계산 (업체×분류 그룹 MAX)
 function computeAgencyRecognition(rows) {
   var groupMap = {};
@@ -1108,6 +1171,7 @@ function detectLedgerPeriod(rows) {
     aiTruncated: false,
     hometax: null,        // v2.1: parseHometaxAgency() 결과
     cardZeropay: null,    // v2.9: parseHometaxCardZeropay() 결과
+    cashReceipt: null,    // v2.11: parseHometaxCashReceipt() 결과
     agencyRows: [],        // v2.1: 3C 판매대행 정리표 행
     salesRecon: [],         // v2.1: 3D 매출대사표 결과
     deemedResult: null,      // v2.1: 3E-1 의제매입세액 계산 결과
@@ -1171,6 +1235,7 @@ function detectLedgerPeriod(rows) {
     computeAndRenderCardCredit();
     computeAndRenderSalesRecon();
     if (state.cardZeropay) renderCardZeropayParseResult(state.cardZeropay);
+    if (state.cashReceipt) renderCashReceiptParseResult(state.cashReceipt);
     updateCostEstimate();
     renderSummary();
   });
@@ -1257,6 +1322,13 @@ function detectLedgerPeriod(rows) {
         state.agencyRows = [];
         $('hometaxPasteArea').value = '';
         $('hometaxParseResult').innerHTML = '';
+        // v2.11: 3A-2/3A-3 붙여넣기 파서도 새 장부 업로드 시 초기화
+        state.cardZeropay = null;
+        $('cardZeropayPasteArea').value = '';
+        $('cardZeropayParseResult').innerHTML = '';
+        state.cashReceipt = null;
+        $('cashReceiptPasteArea').value = '';
+        $('cashReceiptParseResult').innerHTML = '';
         $('step3RevCard').style.display = '';
         renderManualInputPanel();
         renderAgencyTable();
@@ -1830,6 +1902,29 @@ function detectLedgerPeriod(rows) {
     state.agencyRows = rows;
   }
 
+  // v2.11: 붙여넣기 파서 공통 — 승인(거래)년월 범위 텍스트 + 선택 과세기간 밖 월 경고
+  function ymMetaAndWarning(rows) {
+    var months = {};
+    rows.forEach(function (r) { months[r.yearMonth] = true; });
+    var keys = Object.keys(months).sort();
+    var rangeText = keys[0] + (keys.length > 1 ? '~' + keys[keys.length - 1] : '');
+    var warnHtml = '';
+    var range = periodToRange($('period').value);
+    if (range) {
+      var startYm = range[0].slice(0, 7), endYm = range[1].slice(0, 7);
+      var outside = keys.filter(function (m) {
+        var d = m.replace(/\D/g, '');
+        var norm = d.slice(0, 4) + '-' + d.slice(4, 6);
+        return norm < startYm || norm > endYm;
+      });
+      if (outside.length) {
+        warnHtml = '<div class="note-text neg">⚠ 선택한 과세기간(' + escapeHtml($('period').value) + ') 밖 월 포함: ' +
+          escapeHtml(outside.join(', ')) + ' — 합계에 포함되어 있으니 홈택스 조회 기간을 확인하세요.</div>';
+      }
+    }
+    return { rangeText: rangeText, warnHtml: warnHtml };
+  }
+
   // ---- 3A-2: 홈택스 신용카드·제로페이 매출자료 파싱 ----
   $('btnParseCardZeropay').addEventListener('click', function () {
     var text = $('cardZeropayPasteArea').value;
@@ -1848,30 +1943,15 @@ function detectLedgerPeriod(rows) {
       return;
     }
     var t = result.totals;
-    var months = {};
-    result.rows.forEach(function (r) { months[r.yearMonth] = true; });
-    var monthKeys = Object.keys(months).sort();
+    var ym = ymMetaAndWarning(result.rows);
     var html = '<table class="data-table"><thead><tr><th>구분</th><th class="num">건수</th><th class="num">매출액계(공급대가)</th></tr></thead><tbody>' +
       '<tr><td>신용카드</td>' + numCell(t.card.count) + numCell(t.card.sum) + '</tr>' +
       '<tr><td>제로(온누리)페이</td>' + numCell(t.zeropay.count) + numCell(t.zeropay.sum) + '</tr>' +
       '</tbody></table>';
-    html += '<div class="meta-line">인식 데이터 행 ' + result.rows.length + '건 · 승인년월 ' +
-      escapeHtml(monthKeys[0]) + (monthKeys.length > 1 ? '~' + escapeHtml(monthKeys[monthKeys.length - 1]) : '');
+    html += '<div class="meta-line">인식 데이터 행 ' + result.rows.length + '건 · 승인년월 ' + escapeHtml(ym.rangeText);
     if (result.skipped > 0) html += ' · <span class="neg">인식 실패 ' + result.skipped + '건</span>';
     html += '</div>';
-    var range = periodToRange($('period').value);
-    if (range) {
-      var startYm = range[0].slice(0, 7), endYm = range[1].slice(0, 7);
-      var outside = monthKeys.filter(function (m) {
-        var d = m.replace(/\D/g, '');
-        var norm = d.slice(0, 4) + '-' + d.slice(4, 6);
-        return norm < startYm || norm > endYm;
-      });
-      if (outside.length) {
-        html += '<div class="note-text neg">⚠ 선택한 과세기간(' + escapeHtml($('period').value) + ') 밖 승인년월 포함: ' +
-          escapeHtml(outside.join(', ')) + ' — 아래 합계에 포함되어 있으니 홈택스 조회 기간을 확인하세요.</div>';
-      }
-    }
+    html += ym.warnHtml;
     if (result.taxExemptSum) {
       html += '<div class="note-text neg">⚠ 비과세금액 합계 ' + fmtNum(result.taxExemptSum) + '원 존재 — 자동합산에서 제외되지 않았으니 직접 확인 필요</div>';
     }
@@ -1880,6 +1960,43 @@ function detectLedgerPeriod(rows) {
     $('btnApplyCardZeropay').addEventListener('click', function () {
       $('mCard').value = t.card.sum ? fmtNum(t.card.sum) : '';
       $('mZeropay').value = t.zeropay.sum ? fmtNum(t.zeropay.sum) : '';
+      computeAndRenderSalesRecon();
+    });
+  }
+
+  // ---- 3A-3: 홈택스 현금영수증 매출 발행내역 파싱 ----
+  $('btnParseCashReceipt').addEventListener('click', function () {
+    var result = parseHometaxCashReceipt($('cashReceiptPasteArea').value);
+    state.cashReceipt = result;
+    renderCashReceiptParseResult(result);
+  });
+
+  function renderCashReceiptParseResult(result) {
+    var box = $('cashReceiptParseResult');
+    if (!result) { box.innerHTML = ''; return; }
+    if (!result.rows.length) {
+      box.innerHTML = '<div class="note-text neg">인식된 데이터 행 없음' +
+        (result.skipped > 0 ? ' (인식 실패 ' + result.skipped + '건)' : '') +
+        ' — 거래년월·건수·금액 컬럼이 포함되게 표 전체를 복사했는지 확인하세요.</div>';
+      return;
+    }
+    var t = result.totals;
+    var ym = ymMetaAndWarning(result.rows);
+    var supply = t.amount + t.tax; // 공급대가 (봉사료 제외)
+    var html = '<table class="data-table"><thead><tr><th class="num">건수</th><th class="num">공급가액</th><th class="num">세액</th><th class="num">봉사료</th><th class="num">공급대가(가액+세액)</th></tr></thead><tbody>' +
+      '<tr>' + numCell(t.count) + numCell(t.amount) + numCell(t.tax) + numCell(t.tip) + numCell(supply) + '</tr>' +
+      '</tbody></table>';
+    html += '<div class="meta-line">인식 데이터 행 ' + result.rows.length + '건 · 거래년월 ' + escapeHtml(ym.rangeText);
+    if (result.skipped > 0) html += ' · <span class="neg">인식 실패 ' + result.skipped + '건</span>';
+    html += '</div>';
+    html += ym.warnHtml;
+    if (t.tip) {
+      html += '<div class="note-text neg">⚠ 봉사료 ' + fmtNum(t.tip) + '원 존재 — 과세표준 제외 대상이라 공급대가에서 빼고 반영합니다 (총금액 ' + fmtNum(t.total) + '원과 구분)</div>';
+    }
+    html += '<button class="small-btn no-print" id="btnApplyCashReceipt" type="button" style="margin-top:6px;">3B 현금영수증 총액 칸에 반영</button>';
+    box.innerHTML = html;
+    $('btnApplyCashReceipt').addEventListener('click', function () {
+      $('mCashReceipt').value = supply ? fmtNum(supply) : '';
       computeAndRenderSalesRecon();
     });
   }
