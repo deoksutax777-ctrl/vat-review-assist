@@ -224,8 +224,33 @@
   tr.type-detail-row > td.detail-cell { background: #FAFBFD; padding: 8px 10px 12px 26px; }
   .detail-wrap { max-height: 340px; overflow: auto; border: 1px solid #E2E6ED; border-radius: 6px; }
   .detail-wrap table.data-table { margin: 0; font-size: 12px; }
-  .detail-filter { margin-bottom: 6px; font-size: 12px; color: #555; }
-  .detail-filter select { border: 1px solid #D5D9E0; border-radius: 4px; padding: 4px 6px; font-size: 12px; max-width: 320px; }
+
+  /* v2.7: 세부내역 표 헤더 정렬·필터 (엑셀식) */
+  .detail-wrap th { white-space: nowrap; }
+  .col-filter-btn {
+    border: none; background: transparent; color: #B9C0CC; cursor: pointer; font-size: 10px;
+    margin-left: 4px; padding: 0 2px; vertical-align: middle;
+  }
+  .col-filter-btn:hover { color: var(--main); }
+  .col-filter-btn.sorted-asc, .col-filter-btn.sorted-desc, .col-filter-btn.filter-active { color: var(--main); font-weight: bold; }
+  #colFilterPanel {
+    position: fixed; z-index: 1000; background: #fff; border: 1px solid #D5D9E0; border-radius: 6px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.15); padding: 8px; width: 220px; font-size: 12px; display: none;
+  }
+  #colFilterPanel .cfp-sort-btn {
+    display: block; width: 100%; text-align: left; border: none; background: transparent; padding: 5px 6px;
+    cursor: pointer; border-radius: 4px; font-size: 12px; box-sizing: border-box;
+  }
+  #colFilterPanel .cfp-sort-btn:hover { background: #F3F6FB; }
+  #colFilterPanel .cfp-sep { border-top: 1px solid #E2E6ED; margin: 6px 0; }
+  #colFilterPanel .cfp-search { width: 100%; border: 1px solid #D5D9E0; border-radius: 4px; padding: 4px 6px; margin-bottom: 6px; box-sizing: border-box; }
+  #colFilterPanel .cfp-select-all { display: block; padding: 2px 0 6px; font-weight: bold; }
+  #colFilterPanel .cfp-list { max-height: 160px; overflow: auto; border: 1px solid #E2E6ED; border-radius: 4px; padding: 4px 6px; }
+  #colFilterPanel .cfp-list label { display: block; padding: 2px 0; cursor: pointer; font-weight: normal; }
+  #colFilterPanel .cfp-footer { display: flex; justify-content: space-between; margin-top: 8px; gap: 6px; }
+  #colFilterPanel .cfp-footer button { flex: 1; border-radius: 4px; padding: 5px 6px; font-size: 12px; cursor: pointer; }
+  #colFilterPanel .cfp-apply { background: var(--main); color: #fff; border: 1px solid var(--main); }
+  #colFilterPanel .cfp-clear, #colFilterPanel .cfp-cancel { background: #fff; border: 1px solid #D5D9E0; color: #555; }
 
   /* v2.4: 판매대행 등록현황 배지 */
   .badge-efin { color: var(--main); border: 1px solid var(--main); border-radius: 4px; padding: 1px 6px; font-size: 11px; white-space: nowrap; }
@@ -234,7 +259,7 @@
   .badge-unknown { color: #fff; background: #C5A44E; border-radius: 4px; padding: 1px 6px; font-size: 11px; white-space: nowrap; }
   @media print {
     .detail-wrap { max-height: none; overflow: visible; border: none; }
-    .detail-filter { display: none; }
+    #colFilterPanel { display: none !important; }
   }
 </style>
 </head>
@@ -1003,6 +1028,7 @@ function detectLedgerPeriod(rows) {
     cardCreditResult: null,   // v2.1: 3E-2 신카발행세액공제 계산 결과
     deemedRentRows: [],       // v2.6: 3E-3 간주임대료 보증금 구간
     deemedRentResult: null,   // v2.6: 3E-3 계산 결과
+    detailUI: {},            // v2.7: 세부내역 표 코드별 정렬·필터 상태 { [code]: { sort:{col,dir}, filters:{col: {value:true}|null} } }
   };
 
   // ---- 유틸 ----
@@ -1170,6 +1196,7 @@ function detectLedgerPeriod(rows) {
   function dialectLabel(d) { return d === 'samu' ? '세무사랑' : '위하고'; }
 
   function renderStep1(result, fileName) {
+    state.detailUI = {};
     var dates = result.rows.map(function (r) { return r.date; }).filter(function (d) { return /^\d{4}-\d{2}-\d{2}/.test(d); }).sort();
     var dateRange = dates.length ? (dates[0] + ' ~ ' + dates[dates.length - 1]) : '(날짜 인식 불가)';
 
@@ -1237,12 +1264,58 @@ function detectLedgerPeriod(rows) {
     tr.classList.add('open');
   });
 
-  // 세부 필터 값 인코딩: '' = 전체, 'a:<계정과목>' = 해당 계정과목 (접두사로 이름 충돌 원천 차단)
-  function buildTypeDetailBody(code, filter) {
-    var acc = (filter && filter.indexOf('a:') === 0) ? filter.slice(2) : null;
-    var rows = state.ledger.rows.filter(function (r) {
-      return r.typeCode === code && (acc === null || (r.account || '') === acc);
+  // v2.7: 세부내역 표 헤더 정렬·필터 (엑셀식 헤더 드롭다운으로 계정과목 셀렉트 대체)
+  var DETAIL_COLUMNS = [
+    { key: 'date', label: '일자', numeric: false },
+    { key: 'vendor', label: '거래처', numeric: false },
+    { key: 'item', label: '품목', numeric: false },
+    { key: 'account', label: '계정과목', numeric: false },
+    { key: 'amount', label: '공급가액', numeric: true },
+    { key: 'tax', label: '부가세', numeric: true },
+    { key: 'total', label: '합계', numeric: true }
+  ];
+
+  function getDetailUI(code) {
+    if (!state.detailUI[code]) state.detailUI[code] = { sort: { col: null, dir: null }, filters: {} };
+    return state.detailUI[code];
+  }
+
+  function colValueKey(row, col) {
+    var v = row[col];
+    return (col === 'amount' || col === 'tax' || col === 'total') ? String(v || 0) : String(v || '');
+  }
+
+  function colValueLabel(row, col) {
+    var v = row[col];
+    if (col === 'amount' || col === 'tax' || col === 'total') return fmtNum(v || 0);
+    return (v === '' || v == null) ? '(없음)' : String(v);
+  }
+
+  // 지정 컬럼(exceptCol)의 자체 필터만 제외하고 나머지 컬럼 필터를 적용한 세부 행 목록 (헤더 드롭다운 목록 산정용)
+  function filterRowsExceptCol(code, exceptCol) {
+    var ui = getDetailUI(code);
+    return state.ledger.rows.filter(function (r) {
+      if (r.typeCode !== code) return false;
+      for (var col in ui.filters) {
+        if (col === exceptCol) continue;
+        var set = ui.filters[col];
+        if (set && !set[colValueKey(r, col)]) return false;
+      }
+      return true;
     });
+  }
+
+  function buildTypeDetailBody(code) {
+    var ui = getDetailUI(code);
+    var rows = filterRowsExceptCol(code, null);
+    if (ui.sort.col) {
+      var sc = ui.sort.col, dir = ui.sort.dir === 'desc' ? -1 : 1;
+      var numeric = sc === 'amount' || sc === 'tax' || sc === 'total';
+      rows = rows.slice().sort(function (a, b) {
+        if (numeric) return ((a[sc] || 0) - (b[sc] || 0)) * dir;
+        return String(a[sc] || '').localeCompare(String(b[sc] || ''), 'ko') * dir;
+      });
+    }
     var amount = 0, tax = 0, total = 0;
     var bodyHtml = rows.map(function (r) {
       amount += r.amount || 0; tax += r.tax || 0; total += r.total || 0;
@@ -1257,36 +1330,151 @@ function detectLedgerPeriod(rows) {
     return '<td colspan="4">소계 (' + res.count + '건)</td>' + numCell(res.amount) + numCell(res.tax) + numCell(res.total);
   }
 
+  function detailHeaderCell(code, col) {
+    var meta = DETAIL_COLUMNS.filter(function (c) { return c.key === col; })[0];
+    var ui = getDetailUI(code);
+    var cls = [];
+    var arrow = '';
+    if (ui.sort.col === col) { cls.push(ui.sort.dir === 'asc' ? 'sorted-asc' : 'sorted-desc'); arrow = ui.sort.dir === 'asc' ? ' ▲' : ' ▼'; }
+    if (ui.filters[col]) cls.push('filter-active');
+    return '<th' + (meta.numeric ? ' class="num"' : '') + '>' + escapeHtml(meta.label) + arrow +
+      '<button type="button" class="col-filter-btn' + (cls.length ? ' ' + cls.join(' ') : '') + '" data-code="' + code + '" data-col="' + col + '">▾</button></th>';
+  }
+
   function buildTypeDetailHtml(code) {
-    var all = state.ledger.rows.filter(function (r) { return r.typeCode === code; });
-    var accCount = {}, accOrder = [];
-    all.forEach(function (r) {
-      var a = r.account || '';
-      if (!(a in accCount)) { accCount[a] = 0; accOrder.push(a); }
-      accCount[a]++;
-    });
-    accOrder.sort(function (a, b) { return a.localeCompare(b, 'ko'); });
-    var opts = '<option value="">전체 (' + all.length + '건)</option>' +
-      accOrder.map(function (a) {
-        return '<option value="' + escapeHtml('a:' + a) + '">' + (a === '' ? '(없음)' : escapeHtml(a)) + ' (' + accCount[a] + '건)</option>';
-      }).join('');
-    var res = buildTypeDetailBody(code, '');
-    return '<div class="detail-filter">계정과목 필터: <select class="detail-account-filter" data-code="' + code + '">' + opts + '</select></div>' +
-      '<div class="detail-wrap"><table class="data-table"><thead><tr><th>일자</th><th>거래처</th><th>품목</th><th>계정과목</th><th class="num">공급가액</th><th class="num">부가세</th><th class="num">합계</th></tr></thead>' +
+    var res = buildTypeDetailBody(code);
+    var theadHtml = '<tr>' + DETAIL_COLUMNS.map(function (c) { return detailHeaderCell(code, c.key); }).join('') + '</tr>';
+    return '<div class="detail-wrap"><table class="data-table"><thead>' + theadHtml + '</thead>' +
       '<tbody class="detail-tbody">' + res.bodyHtml + '</tbody>' +
       '<tfoot><tr class="subtotal detail-subtotal-row">' + detailSubtotalCells(res) + '</tr></tfoot></table></div>';
   }
 
-  // v2.3: 세부 내역 계정과목 필터 (위임 핸들러 1회 바인딩)
-  $('step1Result').addEventListener('change', function (ev) {
-    var sel = ev.target;
-    if (!sel || !sel.classList || !sel.classList.contains('detail-account-filter') || !state.ledger) return;
-    var code = Number(sel.getAttribute('data-code'));
+  function rerenderTypeDetail(code) {
     var detail = $('step1Result').querySelector('tr.type-detail-row[data-detail-for="' + code + '"]');
     if (!detail) return;
-    var res = buildTypeDetailBody(code, sel.value);
-    detail.querySelector('tbody.detail-tbody').innerHTML = res.bodyHtml;
-    detail.querySelector('tr.detail-subtotal-row').innerHTML = detailSubtotalCells(res);
+    detail.querySelector('td.detail-cell').innerHTML = buildTypeDetailHtml(code);
+  }
+
+  // ---- 헤더 정렬/필터 드롭다운 패널 (표 하나 공유, 컨텍스트만 교체) ----
+  var colFilterPanel = null;
+  var colFilterCtx = null; // { code, col }
+
+  function closeColFilterPanel() {
+    if (colFilterPanel) colFilterPanel.style.display = 'none';
+    colFilterCtx = null;
+  }
+
+  function ensureColFilterPanel() {
+    if (colFilterPanel) return colFilterPanel;
+    colFilterPanel = document.createElement('div');
+    colFilterPanel.id = 'colFilterPanel';
+    document.body.appendChild(colFilterPanel);
+    colFilterPanel.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      if (!colFilterCtx) return;
+      var btn = ev.target.closest ? ev.target.closest('button') : null;
+      if (!btn) return;
+      var code = colFilterCtx.code, col = colFilterCtx.col;
+      var ui = getDetailUI(code);
+      if (btn.classList.contains('cfp-sort-asc')) {
+        ui.sort = { col: col, dir: 'asc' }; closeColFilterPanel(); rerenderTypeDetail(code);
+      } else if (btn.classList.contains('cfp-sort-desc')) {
+        ui.sort = { col: col, dir: 'desc' }; closeColFilterPanel(); rerenderTypeDetail(code);
+      } else if (btn.classList.contains('cfp-clear')) {
+        ui.filters[col] = null; closeColFilterPanel(); rerenderTypeDetail(code);
+      } else if (btn.classList.contains('cfp-apply')) {
+        var checkboxes = colFilterPanel.querySelectorAll('.cfp-list input[type="checkbox"]');
+        var checked = {}, checkedCount = 0;
+        Array.prototype.forEach.call(checkboxes, function (cb) { if (cb.checked) { checked[cb.value] = true; checkedCount++; } });
+        ui.filters[col] = (checkedCount === checkboxes.length) ? null : checked;
+        closeColFilterPanel(); rerenderTypeDetail(code);
+      } else if (btn.classList.contains('cfp-cancel')) {
+        closeColFilterPanel();
+      }
+    });
+    colFilterPanel.addEventListener('input', function (ev) {
+      if (!ev.target.classList || !ev.target.classList.contains('cfp-search')) return;
+      var q = ev.target.value.trim().toLowerCase();
+      Array.prototype.forEach.call(colFilterPanel.querySelectorAll('.cfp-list label'), function (lbl) {
+        lbl.style.display = lbl.getAttribute('data-text').toLowerCase().indexOf(q) === -1 ? 'none' : '';
+      });
+    });
+    colFilterPanel.addEventListener('change', function (ev) {
+      if (!ev.target.classList || !ev.target.classList.contains('cfp-select-all-cb')) return;
+      var checked = ev.target.checked;
+      // 검색으로 숨긴 항목은 건드리지 않음 (엑셀과 동일: 보이는 결과만 토글)
+      Array.prototype.forEach.call(colFilterPanel.querySelectorAll('.cfp-list label'), function (lbl) {
+        if (lbl.style.display === 'none') return;
+        lbl.querySelector('input[type="checkbox"]').checked = checked;
+      });
+    });
+    document.addEventListener('click', function () { closeColFilterPanel(); });
+    document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') closeColFilterPanel(); });
+    // position:fixed 패널이 표에서 분리된 채 떠 있지 않도록 스크롤 시 닫음 (패널 내부 목록 스크롤은 제외)
+    document.addEventListener('scroll', function (ev) {
+      if (!colFilterCtx) return;
+      if (ev.target && ev.target.nodeType === 1 && colFilterPanel.contains(ev.target)) return;
+      closeColFilterPanel();
+    }, true);
+    return colFilterPanel;
+  }
+
+  function openColFilterPanel(btn, code, col) {
+    var panel = ensureColFilterPanel();
+    colFilterCtx = { code: code, col: col };
+    var ui = getDetailUI(code);
+    var rows = filterRowsExceptCol(code, col);
+    var counts = {}, order = [];
+    rows.forEach(function (r) {
+      var key = colValueKey(r, col);
+      if (!(key in counts)) { counts[key] = { count: 0, label: colValueLabel(r, col) }; order.push(key); }
+      counts[key].count++;
+    });
+    var numeric = col === 'amount' || col === 'tax' || col === 'total';
+    order.sort(function (a, b) {
+      return numeric ? (Number(a) - Number(b)) : String(counts[a].label).localeCompare(String(counts[b].label), 'ko');
+    });
+    var activeSet = ui.filters[col];
+    var checkedCount = order.filter(function (k) { return !activeSet || activeSet[k]; }).length;
+    var listHtml = order.map(function (key) {
+      var checked = !activeSet || activeSet[key];
+      return '<label data-text="' + escapeHtml(counts[key].label) + '"><input type="checkbox" value="' + escapeHtml(key) + '"' + (checked ? ' checked' : '') + '> ' +
+        escapeHtml(counts[key].label) + ' (' + counts[key].count + ')</label>';
+    }).join('');
+    panel.innerHTML =
+      '<button type="button" class="cfp-sort-btn cfp-sort-asc">▲ 오름차순 정렬</button>' +
+      '<button type="button" class="cfp-sort-btn cfp-sort-desc">▼ 내림차순 정렬</button>' +
+      '<div class="cfp-sep"></div>' +
+      '<input type="text" class="cfp-search" placeholder="검색">' +
+      '<label class="cfp-select-all"><input type="checkbox" class="cfp-select-all-cb"' + (checkedCount === order.length ? ' checked' : '') + '> 전체 선택</label>' +
+      '<div class="cfp-list">' + (listHtml || '<div style="color:#999;">값 없음</div>') + '</div>' +
+      '<div class="cfp-footer">' +
+      '<button type="button" class="cfp-clear">초기화</button>' +
+      '<button type="button" class="cfp-cancel">취소</button>' +
+      '<button type="button" class="cfp-apply">적용</button>' +
+      '</div>';
+    panel.style.display = 'block';
+    var rect = btn.getBoundingClientRect();
+    panel.style.top = (rect.bottom + 4) + 'px';
+    panel.style.left = rect.left + 'px';
+    var pw = panel.offsetWidth, ph = panel.offsetHeight;
+    if (rect.left + pw > window.innerWidth - 8) panel.style.left = Math.max(8, window.innerWidth - pw - 8) + 'px';
+    // 뷰포트 하단에 잘리면 버튼 위쪽으로 뒤집어 표시
+    if (rect.bottom + 4 + ph > window.innerHeight - 8) panel.style.top = Math.max(8, rect.top - 4 - ph) + 'px';
+  }
+
+  // v2.3/v2.7: 세부 내역 헤더 필터 버튼 (위임 핸들러 1회 바인딩)
+  $('step1Result').addEventListener('click', function (ev) {
+    var btn = ev.target && ev.target.closest ? ev.target.closest('.col-filter-btn') : null;
+    if (!btn || !state.ledger) return;
+    ev.stopPropagation();
+    var code = Number(btn.getAttribute('data-code'));
+    var col = btn.getAttribute('data-col');
+    if (colFilterCtx && colFilterCtx.code === code && colFilterCtx.col === col && colFilterPanel && colFilterPanel.style.display !== 'none') {
+      closeColFilterPanel();
+      return;
+    }
+    openColFilterPanel(btn, code, col);
   });
 
   // ============================================================
