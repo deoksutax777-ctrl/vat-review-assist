@@ -361,6 +361,16 @@
         </div>
       </div>
 
+      <div class="sub-card">
+        <h4><span>3E-3. 간주임대료 계산기</span><button class="step-toggle-btn no-print" id="btnToggleDeemedRent" type="button">펼치기</button></h4>
+        <div id="deemedRentBody" class="collapsible-body collapsed">
+          <div class="manual-grid no-print" id="deemedRentRatePanel"></div>
+          <div id="deemedRentTableWrap"></div>
+          <div id="deemedRentResult"></div>
+          <div class="note-text">간주임대료 = 보증금 × 임대일수 × 정기예금이자율 ÷ 365(윤년 366), 원 미만 버림 · 이자율 연 3.1%는 부가세법 시행규칙 §47(2026.4.1. 시행) — 고시 개정 시 수정하여 사용</div>
+        </div>
+      </div>
+
       <!-- 3F -->
       <div class="sub-card">
         <h4><span>3F. 현금매출 비율 참고</span></h4>
@@ -862,6 +872,30 @@ function filterLedgerByPeriod(result, periodStr) {
   };
 }
 
+// v2.6: 간주임대료 (부가세법 시행령 §65① — 보증금 × 과세대상기간 일수 × 이자율 ÷ 365(윤년 366), 원 미만 버림)
+function computeDeemedRentInterest(rows, ratePct) {
+  var rate = Number(ratePct) || 0;
+  function parseIso(s) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(String(s || '')) ? Date.parse(s) : null;
+  }
+  var items = [];
+  var total = 0;
+  (rows || []).forEach(function (r) {
+    var deposit = Number(r.deposit) || 0;
+    var sd = parseIso(r.start), ed = parseIso(r.end);
+    var days = 0, denom = 365, amount = 0;
+    if (deposit > 0 && sd !== null && ed !== null && ed >= sd) {
+      days = Math.round((ed - sd) / 86400000) + 1;
+      var y = parseInt(String(r.start).slice(0, 4), 10);
+      denom = (y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0)) ? 366 : 365;
+      amount = Math.floor(deposit * days * rate / (100 * denom) + 1e-9);
+    }
+    total += amount;
+    items.push({ deposit: deposit, days: days, denom: denom, amount: amount });
+  });
+  return { items: items, total: total, vat: Math.floor(total / 10) };
+}
+
 // 장부 날짜 다수결로 과세기간 자동 인식 → '2026년 1기 확정' 형식 (예정/확정 구분은 불가 — 확정이 안전한 상위 창)
 function detectLedgerPeriod(rows) {
   var counts = {};
@@ -967,6 +1001,8 @@ function detectLedgerPeriod(rows) {
     salesRecon: [],         // v2.1: 3D 매출대사표 결과
     deemedResult: null,      // v2.1: 3E-1 의제매입세액 계산 결과
     cardCreditResult: null,   // v2.1: 3E-2 신카발행세액공제 계산 결과
+    deemedRentRows: [],       // v2.6: 3E-3 간주임대료 보증금 구간
+    deemedRentResult: null,   // v2.6: 3E-3 계산 결과
   };
 
   // ---- 유틸 ----
@@ -1117,6 +1153,7 @@ function detectLedgerPeriod(rows) {
         renderCardCreditInputPanel();
         setCardCreditDefaults();
         computeAndRenderCardCredit();
+        renderDeemedRentPanel();
         computeAndRenderSalesRecon();
       } catch (err) {
         state.ledger = null;
@@ -1688,6 +1725,75 @@ function detectLedgerPeriod(rows) {
     var warn = $('cardCreditWarn');
     if (warn) warn.innerHTML = ($('bizType').value === '법인') ? '<div class="error-box">법인은 적용 불가</div>' : '';
   });
+
+  // ---- 3E-3: 간주임대료 계산기 (v2.6) ----
+  $('btnToggleDeemedRent').addEventListener('click', function () { toggleCollapsible('deemedRentBody', this); });
+
+  function renderDeemedRentPanel() {
+    var r = periodToRange($('period').value) || ['', ''];
+    state.deemedRentRows = [{ deposit: null, start: r[0], end: r[1] }];
+    $('deemedRentRatePanel').innerHTML =
+      '<div class="field"><label for="drRate">정기예금 이자율(%)</label><input type="text" id="drRate" value="3.1"></div>';
+    $('drRate').addEventListener('input', function () {
+      $('drRate').value = $('drRate').value.replace(/[^0-9.]/g, '');
+      renderDeemedRentTable();
+    });
+    renderDeemedRentTable();
+  }
+
+  function renderDeemedRentTable() {
+    var rows = state.deemedRentRows;
+    var res = computeDeemedRentInterest(rows, parseFloat($('drRate').value) || 0);
+    state.deemedRentResult = res;
+
+    var bodyHtml = rows.map(function (r, i) {
+      var it = res.items[i];
+      return '<tr>' +
+        '<td><input class="cell-input dr-deposit" data-i="' + i + '" type="text" value="' + (r.deposit ? fmtNum(r.deposit) : '') + '" placeholder="보증금"></td>' +
+        '<td><input class="cell-select dr-date" data-i="' + i + '" data-k="start" type="date" value="' + escapeHtml(r.start || '') + '"></td>' +
+        '<td><input class="cell-select dr-date" data-i="' + i + '" data-k="end" type="date" value="' + escapeHtml(r.end || '') + '"></td>' +
+        numCell(it.days) + '<td class="num">' + it.denom + '</td>' + numCell(it.amount) + '</tr>';
+    }).join('');
+    bodyHtml += '<tr class="subtotal"><td colspan="5">합계</td>' + numCell(res.total) + '</tr>';
+
+    $('deemedRentTableWrap').innerHTML =
+      '<table class="data-table"><thead><tr><th>임대보증금</th><th>임대개시</th><th>임대종료</th><th class="num">일수</th><th class="num">분모</th><th class="num">간주임대료</th></tr></thead>' +
+      '<tbody>' + bodyHtml + '</tbody></table>' +
+      '<button class="small-btn no-print" id="btnAddDrRow" type="button" style="margin-top:8px;">행 추가</button>';
+
+    $('deemedRentResult').innerHTML =
+      '<div class="calc-result-line">간주임대료(공급가액) 합계 = <b>' + fmtNum(res.total) + '</b> · 세액(10%) = <b>' + fmtNum(res.vat) + '</b></div>' +
+      '<button class="small-btn no-print" id="btnApplyDeemedRent" type="button" style="margin-top:6px;">3B 간주임대료 칸에 반영</button>';
+
+    Array.prototype.forEach.call($('deemedRentTableWrap').querySelectorAll('input.dr-deposit'), function (el) {
+      el.addEventListener('input', function () {
+        var raw = el.value.replace(/[^0-9]/g, '');
+        el.value = raw ? Number(raw).toLocaleString('ko-KR') : '';
+      });
+      el.addEventListener('change', function () {
+        var i = Number(el.getAttribute('data-i'));
+        var raw = el.value.replace(/[^0-9]/g, '');
+        state.deemedRentRows[i].deposit = raw ? parseInt(raw, 10) : null;
+        renderDeemedRentTable();
+      });
+    });
+    Array.prototype.forEach.call($('deemedRentTableWrap').querySelectorAll('input.dr-date'), function (el) {
+      el.addEventListener('change', function () {
+        var i = Number(el.getAttribute('data-i'));
+        state.deemedRentRows[i][el.getAttribute('data-k')] = el.value;
+        renderDeemedRentTable();
+      });
+    });
+    $('btnAddDrRow').addEventListener('click', function () {
+      var r = periodToRange($('period').value) || ['', ''];
+      state.deemedRentRows.push({ deposit: null, start: r[0], end: r[1] });
+      renderDeemedRentTable();
+    });
+    $('btnApplyDeemedRent').addEventListener('click', function () {
+      $('mDeemedRent').value = state.deemedRentResult.total ? fmtNum(state.deemedRentResult.total) : '';
+      computeAndRenderSalesRecon();
+    });
+  }
 
   // ============================================================
   // STEP 4: AI 스크리닝
