@@ -225,6 +225,16 @@
   .detail-wrap { max-height: 340px; overflow: auto; border: 1px solid #E2E6ED; border-radius: 6px; }
   .detail-wrap table.data-table { margin: 0; font-size: 12px; }
 
+  /* v2.10: 세부내역 거래처 묶기 */
+  .detail-group-bar { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+  tr.vendor-group-row { cursor: pointer; }
+  tr.vendor-group-row td { background: #FBFCFE; font-weight: 600; }
+  tr.vendor-group-row:hover td { background: #F3F6FB; }
+  tr.vendor-group-row .chev { display: inline-block; margin-right: 6px; color: #C5A44E; transition: transform .15s; font-size: 11px; }
+  tr.vendor-group-row.open .chev { transform: rotate(90deg); }
+  tr.vendor-child-row td:first-child { padding-left: 22px; }
+  tr.vendor-child-row td { color: #556; }
+
   /* v2.7: 세부내역 표 헤더 정렬·필터 (엑셀식) */
   .detail-wrap th { white-space: nowrap; }
   .col-filter-btn {
@@ -1322,7 +1332,37 @@ function detectLedgerPeriod(rows) {
 
   // v2.2: 유형 행 클릭 → 세부 전표 내역 토글 (지연 렌더링, 위임 핸들러 1회 바인딩)
   $('step1Result').addEventListener('click', function (ev) {
-    var tr = ev.target && ev.target.closest ? ev.target.closest('tr.type-row') : null;
+    var t = ev.target;
+    if (!t || !t.closest) return;
+
+    // v2.10: [거래처 묶기] 토글 버튼
+    var gbtn = t.closest('button.vendor-group-toggle');
+    if (gbtn) {
+      var gcode = Number(gbtn.getAttribute('data-code'));
+      getDetailUI(gcode).groupByVendor = !getDetailUI(gcode).groupByVendor;
+      rerenderTypeDetail(gcode);
+      return;
+    }
+
+    // v2.10: 거래처 그룹 행 클릭 → 자식 행 표시 토글 (재렌더 없이 직접 전환 — detail-wrap 스크롤 위치 보존)
+    var grow = t.closest('tr.vendor-group-row');
+    if (grow) {
+      var open = grow.classList.toggle('open');
+      var gi = grow.getAttribute('data-gv');
+      var innerTable = grow.closest('table');
+      Array.prototype.forEach.call(innerTable.querySelectorAll('tr.vendor-child-row[data-gvc="' + gi + '"]'), function (r) {
+        r.style.display = open ? '' : 'none';
+      });
+      var dRow = grow.closest('tr.type-detail-row');
+      if (dRow) {
+        var openMap = getDetailUI(Number(dRow.getAttribute('data-detail-for'))).openVendors;
+        var vendor = grow.getAttribute('data-vendor');
+        if (open) openMap[vendor] = true; else delete openMap[vendor];
+      }
+      return;
+    }
+
+    var tr = t.closest('tr.type-row');
     if (!tr || !state.ledger) return;
     var code = Number(tr.getAttribute('data-code'));
     var detail = tr.parentNode.querySelector('tr.type-detail-row[data-detail-for="' + code + '"]');
@@ -1353,7 +1393,7 @@ function detectLedgerPeriod(rows) {
   ];
 
   function getDetailUI(code) {
-    if (!state.detailUI[code]) state.detailUI[code] = { sort: { col: null, dir: null }, filters: {} };
+    if (!state.detailUI[code]) state.detailUI[code] = { sort: { col: null, dir: null }, filters: {}, groupByVendor: true, openVendors: {} };
     return state.detailUI[code];
   }
 
@@ -1394,13 +1434,53 @@ function detectLedgerPeriod(rows) {
       });
     }
     var amount = 0, tax = 0, total = 0;
-    var bodyHtml = rows.map(function (r) {
-      amount += r.amount || 0; tax += r.tax || 0; total += r.total || 0;
-      return '<tr><td>' + escapeHtml(r.date || '') + '</td><td>' + escapeHtml(r.vendor || '') + '</td><td>' + escapeHtml(r.item || '') + '</td><td>' + escapeHtml(r.account || '') + '</td>' +
-        numCell(r.amount) + numCell(r.tax) + numCell(r.total) + '</tr>';
-    }).join('');
+    rows.forEach(function (r) { amount += r.amount || 0; tax += r.tax || 0; total += r.total || 0; });
+    var bodyHtml = ui.groupByVendor
+      ? buildVendorGroupedBody(rows, ui)
+      : rows.map(function (r) { return detailRowHtml(r, '', ''); }).join('');
     if (!bodyHtml) bodyHtml = '<tr><td colspan="7">해당 없음</td></tr>';
     return { bodyHtml: bodyHtml, count: rows.length, amount: amount, tax: tax, total: total };
+  }
+
+  function detailRowHtml(r, extraClass, extraAttr) {
+    return '<tr' + (extraClass ? ' class="' + extraClass + '"' : '') + extraAttr + '><td>' + escapeHtml(r.date || '') + '</td><td>' + escapeHtml(r.vendor || '') + '</td><td>' + escapeHtml(r.item || '') + '</td><td>' + escapeHtml(r.account || '') + '</td>' +
+      numCell(r.amount) + numCell(r.tax) + numCell(r.total) + '</tr>';
+  }
+
+  // v2.10: 거래처 묶기 — 정렬·필터 적용 후의 행을 거래처별로 그룹핑, 2건 이상이면 접이식 그룹 행으로
+  function buildVendorGroupedBody(rows, ui) {
+    var map = {}, order = [];
+    rows.forEach(function (r) {
+      var k = String(r.vendor || '');
+      if (!map[k]) { map[k] = { rows: [], amount: 0, tax: 0, total: 0 }; order.push(k); }
+      var g = map[k];
+      g.rows.push(r); g.amount += r.amount || 0; g.tax += r.tax || 0; g.total += r.total || 0;
+    });
+    // 금액 컬럼 정렬 중이면 그룹은 합계 기준으로 재정렬 (문자 컬럼은 첫 등장 순서 = 행 정렬 순서 유지)
+    var sc = ui.sort.col;
+    if (sc === 'amount' || sc === 'tax' || sc === 'total') {
+      var dir = ui.sort.dir === 'desc' ? -1 : 1;
+      order.sort(function (a, b) { return (map[a][sc] - map[b][sc]) * dir; });
+    }
+    return order.map(function (k, gi) {
+      var g = map[k];
+      if (g.rows.length === 1) return detailRowHtml(g.rows[0], '', '');
+      function mixedLabel(col) {
+        var seen = {}, uniq = 0, first = '';
+        g.rows.forEach(function (r) { var v = String(r[col] || ''); if (!(v in seen)) { seen[v] = 1; uniq++; if (uniq === 1) first = v; } });
+        return uniq === 1 ? first : '(' + uniq + '종)';
+      }
+      var open = !!ui.openVendors[k];
+      var head = '<tr class="vendor-group-row' + (open ? ' open' : '') + '" data-gv="' + gi + '" data-vendor="' + escapeHtml(k) + '">' +
+        '<td><span class="chev">▶</span>' + g.rows.length + '건</td>' +
+        '<td>' + (k ? escapeHtml(k) : '(거래처 없음)') + '</td>' +
+        '<td>' + escapeHtml(mixedLabel('item')) + '</td><td>' + escapeHtml(mixedLabel('account')) + '</td>' +
+        numCell(g.amount) + numCell(g.tax) + numCell(g.total) + '</tr>';
+      var children = g.rows.map(function (r) {
+        return detailRowHtml(r, 'vendor-child-row', ' data-gvc="' + gi + '"' + (open ? '' : ' style="display:none;"'));
+      }).join('');
+      return head + children;
+    }).join('');
   }
 
   function detailSubtotalCells(res) {
@@ -1419,9 +1499,13 @@ function detectLedgerPeriod(rows) {
   }
 
   function buildTypeDetailHtml(code) {
+    var ui = getDetailUI(code);
     var res = buildTypeDetailBody(code);
     var theadHtml = '<tr>' + DETAIL_COLUMNS.map(function (c) { return detailHeaderCell(code, c.key); }).join('') + '</tr>';
-    return '<div class="detail-wrap"><table class="data-table"><thead>' + theadHtml + '</thead>' +
+    var groupBar = '<div class="detail-group-bar no-print">' +
+      '<button type="button" class="small-btn vendor-group-toggle" data-code="' + code + '">' +
+      (ui.groupByVendor ? '거래처 묶기 해제' : '거래처 묶기') + '</button></div>';
+    return groupBar + '<div class="detail-wrap"><table class="data-table"><thead>' + theadHtml + '</thead>' +
       '<tbody class="detail-tbody">' + res.bodyHtml + '</tbody>' +
       '<tfoot><tr class="subtotal detail-subtotal-row">' + detailSubtotalCells(res) + '</tr></tfoot></table></div>';
   }
