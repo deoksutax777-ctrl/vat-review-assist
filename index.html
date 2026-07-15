@@ -2081,8 +2081,8 @@ function detectLedgerPeriod(rows) {
       '<button class="small-btn no-print" id="btnAddDrRow" type="button" style="margin-top:8px;">행 추가</button>';
 
     $('deemedRentResult').innerHTML =
-      '<div class="calc-result-line">간주임대료(공급가액) 합계 = <b>' + fmtNum(res.total) + '</b> · 세액(10%) = <b>' + fmtNum(res.vat) + '</b></div>' +
-      '<button class="small-btn no-print" id="btnApplyDeemedRent" type="button" style="margin-top:6px;">3B 간주임대료 칸에 반영</button>';
+      '<div class="calc-result-line">간주임대료(공급가액) 합계 = <b>' + fmtNum(res.total) + '</b> · 세액(10%) = <b>' + fmtNum(res.vat) + '</b> · 공급대가 = <b>' + fmtNum(res.total + res.vat) + '</b></div>' +
+      '<button class="small-btn no-print" id="btnApplyDeemedRent" type="button" style="margin-top:6px;">3B 간주임대료 칸에 반영(공급대가)</button>';
 
     Array.prototype.forEach.call($('deemedRentTableWrap').querySelectorAll('input.dr-deposit'), function (el) {
       el.addEventListener('input', function () {
@@ -2109,7 +2109,9 @@ function detectLedgerPeriod(rows) {
       renderDeemedRentTable();
     });
     $('btnApplyDeemedRent').addEventListener('click', function () {
-      $('mDeemedRent').value = state.deemedRentResult.total ? fmtNum(state.deemedRentResult.total) : '';
+      // 3B는 전부 공급대가 기준 — 공급가액에 세액(10%)을 더해 반영 (장부 [14] 건별도 amount+tax로 대사)
+      var r = state.deemedRentResult;
+      $('mDeemedRent').value = r.total ? fmtNum(r.total + r.vat) : '';
       computeAndRenderSalesRecon();
     });
   }
