@@ -1734,7 +1734,8 @@ function detectLedgerPeriod(rows) {
         '<input type="text" id="' + item.key + '" placeholder="미입력 시 대사 제외"></div>';
     });
     html += '<div class="field"><label for="' + R43.key + '">' + escapeHtml(R43.label) + '</label>' +
-      '<input type="text" id="' + R43.key + '" placeholder="장부 대응 없음 · 참고용"></div>';
+      '<input type="text" id="' + R43.key + '" placeholder="장부 대응 없음 · 참고용">' +
+      '<div id="r43CheckResult" class="note-text" style="margin-top:4px;"></div></div>';
     panel.innerHTML = html;
     RECON_ITEMS.concat([R43]).forEach(function (item) {
       attachCommaInput($(item.key));
@@ -1775,7 +1776,27 @@ function detectLedgerPeriod(rows) {
         '<td>' + judgeHtml + '</td></tr>';
     }).join('');
     $('reconTableBody').innerHTML = body;
+    computeAndRenderR43Check();
     renderSummary();
+  }
+
+  // v2.12: STEP2 (43) 입력값 vs 3E-1 의제매입세액 계산기 결과 대사
+  function computeAndRenderR43Check() {
+    var box = $('r43CheckResult');
+    if (!box) return;
+    var r43val = readInputNumber(R43.key);
+    if (r43val === null) {
+      box.innerHTML = '';
+      return;
+    }
+    if (!state.deemedResult) {
+      box.innerHTML = '<span class="badge-skip">3E-1 계산기 미입력 · 대사 불가</span>';
+      return;
+    }
+    var diff = r43val - state.deemedResult.tax;
+    box.innerHTML = (diff === 0)
+      ? '<span class="badge-ok">3E-1 계산결과와 일치</span>'
+      : '<span class="badge-check">3E-1 계산결과(' + fmtNum(state.deemedResult.tax) + ')와 차이 ' + fmtNum(diff) + '</span>';
   }
 
   // ============================================================
@@ -2194,6 +2215,7 @@ function detectLedgerPeriod(rows) {
       '<div class="calc-result-line">공제대상 = <b>' + fmtNum(r.base) + '</b> · 공제율 ' + r.numerator + '/' + r.denominator + '</div>' +
       '<div class="calc-result-line">의제매입세액 = <b>' + fmtNum(r.tax) + '</b></div>';
     $('deemedResult').innerHTML = html;
+    computeAndRenderR43Check();
     renderSummary();
   }
 
