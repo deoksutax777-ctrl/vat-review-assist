@@ -211,6 +211,7 @@
   }
   .calc-result-line { margin-top: 8px; font-size: 13px; }
   .calc-result-line b { color: var(--main); }
+  .rate-hl { color: var(--danger); font-weight: 700; }
   .small-btn {
     background: #fff; border: 1px solid var(--main); color: var(--main); border-radius: 6px;
     padding: 6px 12px; font-size: 12px; cursor: pointer;
@@ -1782,6 +1783,7 @@ function detectLedgerPeriod(rows) {
 
   // v2.12: STEP2 (43) 입력값 vs 3E-1 의제매입세액 계산기 결과 대사
   function computeAndRenderR43Check() {
+    renderDeemedStep2Badge();  // 모든 경로에서 3E-1 쪽 배지 동기화 (early return보다 먼저)
     var box = $('r43CheckResult');
     if (!box) return;
     var r43val = readInputNumber(R43.key);
@@ -1797,6 +1799,19 @@ function detectLedgerPeriod(rows) {
     box.innerHTML = (diff === 0)
       ? '<span class="badge-ok">3E-1 계산결과와 일치</span>'
       : '<span class="badge-check">3E-1 계산결과(' + fmtNum(state.deemedResult.tax) + ')와 차이 ' + fmtNum(diff) + '</span>';
+  }
+
+  // v2.13: 3E-1 결과줄에 STEP2 (43) 입력값과의 일치/차이 표기 (computeAndRenderR43Check의 반대 방향)
+  function renderDeemedStep2Badge() {
+    var span = $('deemedStep2Badge');
+    if (!span) return;
+    if (!state.deemedResult) { span.innerHTML = ''; return; }
+    var r43val = readInputNumber(R43.key);
+    if (r43val === null) { span.innerHTML = '<span class="badge-skip">STEP2 (43) 미입력</span>'; return; }
+    var diff = r43val - state.deemedResult.tax;
+    span.innerHTML = (diff === 0)
+      ? '<span class="badge-ok">STEP2 (43)와 일치</span>'
+      : '<span class="badge-check">STEP2 (43)(' + fmtNum(r43val) + ')와 차이 ' + fmtNum(diff) + '</span>';
   }
 
   // ============================================================
@@ -2210,10 +2225,10 @@ function detectLedgerPeriod(rows) {
     var r = computeDeemedInputTax(params);
     state.deemedResult = r;
     var html = '<div class="calc-result-line">농수산물 등 매입액 = <b>' + fmtNum(r.agriPurchase) + '</b></div>' +
-      '<div class="calc-result-line">한도(과표×' + (r.limitRate * 100).toFixed(0) + '%) = <b>' + fmtNum(Math.round(r.limitAmount)) + '</b>' +
+      '<div class="calc-result-line">한도(과표×<span class="rate-hl">' + (r.limitRate * 100).toFixed(0) + '%</span>) = <b>' + fmtNum(Math.round(r.limitAmount)) + '</b>' +
       (r.overLimit ? '<span class="badge-over">한도초과</span>' : '') + '</div>' +
-      '<div class="calc-result-line">공제대상 = <b>' + fmtNum(r.base) + '</b> · 공제율 ' + r.numerator + '/' + r.denominator + '</div>' +
-      '<div class="calc-result-line">의제매입세액 = <b>' + fmtNum(r.tax) + '</b></div>';
+      '<div class="calc-result-line">공제대상 = <b>' + fmtNum(r.base) + '</b> · 공제율 <span class="rate-hl">' + r.numerator + '/' + r.denominator + '</span></div>' +
+      '<div class="calc-result-line">의제매입세액 = <b>' + fmtNum(r.tax) + '</b> <span id="deemedStep2Badge"></span></div>';
     $('deemedResult').innerHTML = html;
     computeAndRenderR43Check();
     renderSummary();
