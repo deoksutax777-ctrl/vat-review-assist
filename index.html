@@ -180,6 +180,7 @@
     .collapsible-body.collapsed { display: block !important; }
     body.print-expand tr.type-detail-row { display: table-row !important; }
     body.print-expand tr.vendor-child-row { display: table-row !important; }
+    body.print-expand.print-group-fold tr.vendor-child-row { display: none !important; }
   }
 
   /* v2.1: STEP 3 매출대사 모듈 */
@@ -466,6 +467,9 @@
       <button class="primary-btn" id="btnPrint">인쇄</button>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
         <input type="checkbox" id="chkPrintExpand" checked> 세부내역 전체 펼쳐서 인쇄
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+        <input type="checkbox" id="chkPrintGroupFold"> 거래처는 묶은 채로 (전표 생략)
       </label>
     </div>
   </section>
@@ -2607,6 +2611,7 @@ function detectLedgerPeriod(rows) {
 
     if (!$('chkPrintExpand').checked || !state.ledger) return;
     document.body.classList.add('print-expand');
+    if ($('chkPrintGroupFold').checked) document.body.classList.add('print-group-fold');
     Array.prototype.forEach.call($('step1Result').querySelectorAll('tr.type-detail-row'), function (row) {
       var cell = row.querySelector('td.detail-cell');
       if (cell && !cell.dataset.rendered) {
@@ -2617,6 +2622,10 @@ function detectLedgerPeriod(rows) {
   });
   window.addEventListener('afterprint', function () {
     document.body.classList.remove('print-expand');
+    document.body.classList.remove('print-group-fold');
+  });
+  $('chkPrintExpand').addEventListener('change', function () {
+    $('chkPrintGroupFold').disabled = !this.checked;
   });
 
   ['companyName', 'period', 'bizType', 'industry', 'hasExemptBiz'].forEach(function (id) {
