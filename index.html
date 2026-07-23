@@ -167,13 +167,19 @@
   }
   .current-key-line { font-size: 13px; color: #444; margin-bottom: 10px; }
 
+  .print-only { display: none; }
+  #printCompanyInfo { font-size: 14px; font-weight: 600; margin: 12px 0 2px; }
   @media print {
     .no-print { display: none !important; }
+    .print-only { display: block; }
+    .manual-grid.no-print { display: grid !important; }
     .step2-layout { display: block; }
     header.topbar { background: #fff !important; color: #000 !important; border-bottom: 2px solid #000; }
     .card { box-shadow: none; border: 1px solid #ccc; }
     body { background: #fff; }
     .collapsible-body.collapsed { display: block !important; }
+    body.print-expand tr.type-detail-row { display: table-row !important; }
+    body.print-expand tr.vendor-child-row { display: table-row !important; }
   }
 
   /* v2.1: STEP 3 매출대사 모듈 */
@@ -282,6 +288,9 @@
 </header>
 
 <div class="container">
+
+  <!-- 인쇄 시에만 표시되는 업체 정보 요약 (beforeprint에서 채움) -->
+  <div class="print-only" id="printCompanyInfo"></div>
 
   <!-- 업체 정보 -->
   <section class="card no-print" id="companyCard">
@@ -453,8 +462,11 @@
   <section class="card" id="summaryCard" style="display:none;">
     <h2>결재 요약</h2>
     <div class="summary-card" id="summaryBody"></div>
-    <div style="margin-top:16px;" class="no-print">
+    <div style="margin-top:16px;display:flex;align-items:center;gap:14px;" class="no-print">
       <button class="primary-btn" id="btnPrint">인쇄</button>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+        <input type="checkbox" id="chkPrintExpand" checked> 세부내역 전체 펼쳐서 인쇄
+      </label>
     </div>
   </section>
 
@@ -2583,6 +2595,29 @@ function detectLedgerPeriod(rows) {
   }
 
   $('btnPrint').addEventListener('click', function () { window.print(); });
+
+  // v2.14: 인쇄 — 업체정보 헤더 채우기 + (옵션) 세부내역 전체 펼침. Ctrl+P도 beforeprint로 커버
+  window.addEventListener('beforeprint', function () {
+    var parts = ['업체명: ' + ($('companyName').value || '(미입력)')];
+    if ($('period').value) parts.push('과세기간: ' + $('period').value);
+    parts.push('사업자유형: ' + $('bizType').value);
+    if ($('industry').value) parts.push('업종: ' + $('industry').value);
+    if ($('hasExemptBiz').checked) parts.push('면세사업 겸영');
+    $('printCompanyInfo').textContent = parts.join('  ·  ');
+
+    if (!$('chkPrintExpand').checked || !state.ledger) return;
+    document.body.classList.add('print-expand');
+    Array.prototype.forEach.call($('step1Result').querySelectorAll('tr.type-detail-row'), function (row) {
+      var cell = row.querySelector('td.detail-cell');
+      if (cell && !cell.dataset.rendered) {
+        cell.innerHTML = buildTypeDetailHtml(Number(row.getAttribute('data-detail-for')));
+        cell.dataset.rendered = '1';
+      }
+    });
+  });
+  window.addEventListener('afterprint', function () {
+    document.body.classList.remove('print-expand');
+  });
 
   ['companyName', 'period', 'bizType', 'industry', 'hasExemptBiz'].forEach(function (id) {
     $(id).addEventListener('change', function () { renderSummary(); updateCostEstimate(); });
