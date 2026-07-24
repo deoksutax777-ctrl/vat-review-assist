@@ -216,6 +216,10 @@
   .badge-over {
     color: #fff; background: var(--danger); border-radius: 4px; padding: 1px 6px; font-size: 11px; margin-left: 6px;
   }
+  /* v2.15: 3E-1 면세매입 유형별 포함/제외 체크박스 */
+  #deemedExemptSrc { grid-column: 1 / -1; font-size: 12px; color: #555; }
+  #deemedExemptSrc label { margin-right: 14px; cursor: pointer; }
+  #deemedExemptSrc b { color: var(--main); font-variant-numeric: tabular-nums; }
   .calc-result-line { margin-top: 8px; font-size: 13px; }
   .calc-result-line b { color: var(--main); }
   .rate-hl { color: var(--danger); font-weight: 700; }
@@ -411,7 +415,7 @@
         <div id="deemedBody" class="collapsible-body collapsed">
           <div class="manual-grid no-print" id="deemedInputPanel"></div>
           <div id="deemedResult"></div>
-          <div class="note-text">확정신고 기준(6개월 과표). 예정신고 기공제 차감·정밀검증은 별도 확인</div>
+          <div class="note-text">확정신고 기준(6개월 과표) · 예정신고 기공제 차감·예정 재계산 검증 지원 — 확정 반영액이 신고서 (43)란과 대사됨</div>
         </div>
       </div>
 
@@ -940,12 +944,16 @@ function computeDeemedInputTax(params) {
   var agriPurchase = exemptPurchase - deduction;
   var limitAmount = taxBase * limitRate;
   var base = Math.min(agriPurchase, limitAmount);
-  var tax = Math.floor(base * numerator / denominator);
+  var grossTax = Math.floor(base * numerator / denominator);  // 6개월 전체 공제가능세액
+  var priorCredit = Number(params.priorCredit) || 0;          // v2.15: 예정신고 기공제액
+  var tax = grossTax - priorCredit;                           // 확정신고 반영액 (음수 가능 — 클램프 금지)
   var overLimit = agriPurchase > limitAmount;
 
   return {
     limitRate: limitRate, numerator: numerator, denominator: denominator,
-    agriPurchase: agriPurchase, limitAmount: limitAmount, base: base, tax: tax, overLimit: overLimit,
+    agriPurchase: agriPurchase, limitAmount: limitAmount, base: base,
+    grossTax: grossTax, priorCredit: priorCredit, tax: tax,
+    overLimit: overLimit, netNegative: tax < 0,
   };
 }
 
@@ -2185,6 +2193,7 @@ function detectLedgerPeriod(rows) {
   function renderDeemedInputPanel() {
     var panel = $('deemedInputPanel');
     panel.innerHTML =
+      '<div id="deemedExemptSrc"></div>' +  // v2.15: 면세매입 유형별 체크박스 (setDeemedDefaults에서 채움)
       '<div class="field"><label for="deemedExempt">면세매입액</label><input type="text" id="deemedExempt"></div>' +
       '<div class="field"><label for="deemedDeduction">농수산물 외 차감액</label><input type="text" id="deemedDeduction"></div>' +
       '<div class="field"><label for="deemedBase">과세표준</label><input type="text" id="deemedBase"></div>' +
@@ -2194,9 +2203,13 @@ function detectLedgerPeriod(rows) {
       '<div class="field" id="deemedManualRateField" style="display:none;"><label for="deemedManualRate">한도율(%)</label><input type="text" id="deemedManualRate"></div>' +
       '<div class="field" id="deemedManualFracField" style="display:none;"><label for="deemedManualFrac">공제율</label><select id="deemedManualFrac">' +
       '<option value="2/102">2/102</option><option value="4/104">4/104</option><option value="6/106">6/106</option><option value="8/108">8/108</option><option value="9/109">9/109</option>' +
-      '</select></div>';
+      '</select></div>' +
+      // v2.15: 예정신고 기공제 차감·재계산 검증 입력
+      '<div class="field"><label for="deemedPrior">예정신고 기공제액</label><input type="text" id="deemedPrior"></div>' +
+      '<div class="field"><label for="deemedPrelimBase">예정기간 과세표준</label><input type="text" id="deemedPrelimBase"></div>' +
+      '<div class="field"><label for="deemedPrelimPurchase">예정 농수산물등매입액</label><input type="text" id="deemedPrelimPurchase"></div>';
 
-    ['deemedExempt', 'deemedDeduction', 'deemedBase'].forEach(function (id) {
+    ['deemedExempt', 'deemedDeduction', 'deemedBase', 'deemedPrior', 'deemedPrelimBase', 'deemedPrelimPurchase'].forEach(function (id) {
       attachCommaInputLocal($(id), computeAndRenderDeemed);
     });
     $('deemedMode').addEventListener('change', function () {
@@ -2217,20 +2230,48 @@ function detectLedgerPeriod(rows) {
   function setDeemedDefaults() {
     if (!state.ledger) return;
     var byType = state.ledger.byType;
-    var exemptDefault = [53, 58, 60, 62].reduce(function (s, c) { return s + (byType[c] ? byType[c].amount : 0); }, 0);
+    // v2.15: 면세매입 유형별(면세53·카면58·면건60·현면62) 포함/제외 체크박스 — 장부에 있는 유형만 표시
+    var codes = [53, 58, 60, 62].filter(function (c) { return byType[c] && byType[c].amount; });
+    var src = $('deemedExemptSrc');
+    src.innerHTML = codes.length
+      ? '면세매입액 구성: ' + codes.map(function (c) {
+          return '<label><input type="checkbox" class="deemed-src-cb" value="' + c + '" checked> ' +
+            CODE_NAME_MAP[c] + ' <b>' + fmtNum(byType[c].amount) + '</b></label>';
+        }).join('')
+      : '';
+    Array.prototype.forEach.call(src.querySelectorAll('.deemed-src-cb'), function (cb) {
+      cb.addEventListener('change', applyDeemedExemptChecks);
+    });
+    var exemptDefault = codes.reduce(function (s, c) { return s + byType[c].amount; }, 0);
     var baseDefault = state.ledger.totals.sales.amount;
     $('deemedExempt').value = fmtNum(exemptDefault);
     $('deemedBase').value = fmtNum(baseDefault);
   }
 
+  // v2.15: 체크된 유형 합계로 면세매입액 갱신 후 재계산
+  function applyDeemedExemptChecks() {
+    if (!state.ledger) return;
+    var byType = state.ledger.byType;
+    var sum = 0;
+    Array.prototype.forEach.call(document.querySelectorAll('#deemedExemptSrc .deemed-src-cb'), function (cb) {
+      if (cb.checked) sum += byType[Number(cb.value)].amount;
+    });
+    $('deemedExempt').value = fmtNum(sum);
+    computeAndRenderDeemed();
+  }
+
   function computeAndRenderDeemed() {
     if (!state.ledger) return;
     var mode = $('deemedMode').value;
+    var priorCredit = readInputNumber('deemedPrior') || 0;
+    var prelimBase = readInputNumber('deemedPrelimBase') || 0;
+    var prelimPurchase = readInputNumber('deemedPrelimPurchase') || 0;
     var params = {
       exemptPurchase: readInputNumber('deemedExempt') || 0,
       deduction: readInputNumber('deemedDeduction') || 0,
       taxBase: readInputNumber('deemedBase') || 0,
       mode: mode,
+      priorCredit: priorCredit,
     };
     if (mode === 'manual') {
       params.manualLimitRatePct = parseFloat($('deemedManualRate').value) || 0;
@@ -2240,11 +2281,47 @@ function detectLedgerPeriod(rows) {
     }
     var r = computeDeemedInputTax(params);
     state.deemedResult = r;
+
+    // v2.15: 예정신고 재계산 검증 (예정기간 과표·매입액이 모두 입력된 경우)
+    var prelim = null;
+    if (prelimBase > 0 && prelimPurchase > 0) {
+      var pParams = { exemptPurchase: prelimPurchase, deduction: 0, taxBase: prelimBase, mode: mode };
+      if (mode === 'manual') {
+        pParams.manualLimitRatePct = params.manualLimitRatePct;
+        pParams.manualNumerator = params.manualNumerator;
+        pParams.manualDenominator = params.manualDenominator;
+      }
+      prelim = computeDeemedInputTax(pParams);  // priorCredit 미전달 → prelim.grossTax = 예정 공제가능세액
+    }
+
     var html = '<div class="calc-result-line">농수산물 등 매입액 = <b>' + fmtNum(r.agriPurchase) + '</b></div>' +
       '<div class="calc-result-line">한도(과표×<span class="rate-hl">' + (r.limitRate * 100).toFixed(0) + '%</span>) = <b>' + fmtNum(Math.round(r.limitAmount)) + '</b>' +
       (r.overLimit ? '<span class="badge-over">한도초과</span>' : '') + '</div>' +
-      '<div class="calc-result-line">공제대상 = <b>' + fmtNum(r.base) + '</b> · 공제율 <span class="rate-hl">' + r.numerator + '/' + r.denominator + '</span></div>' +
-      '<div class="calc-result-line">의제매입세액 = <b>' + fmtNum(r.tax) + '</b> <span id="deemedStep2Badge"></span></div>';
+      '<div class="calc-result-line">공제대상 = <b>' + fmtNum(r.base) + '</b> · 공제율 <span class="rate-hl">' + r.numerator + '/' + r.denominator + '</span></div>';
+
+    var hasPrelim = priorCredit > 0 || prelimBase > 0 || prelimPurchase > 0;
+    if (!hasPrelim) {
+      // 예정 입력 없음 — 기존 단일 결과줄 (하위호환: net=gross)
+      html += '<div class="calc-result-line">의제매입세액 = <b>' + fmtNum(r.tax) + '</b> <span id="deemedStep2Badge"></span></div>';
+    } else {
+      html += '<div class="calc-result-line">전체 공제가능세액(6개월) = <b>' + fmtNum(r.grossTax) + '</b></div>';
+      if (prelim) {
+        var prelimOver = priorCredit > prelim.grossTax;
+        html += '<div class="calc-result-line" style="margin-top:10px;color:#556;">— 예정신고 검증 —</div>' +
+          '<div class="calc-result-line">예정 한도(예정과표×<span class="rate-hl">' + (prelim.limitRate * 100).toFixed(0) + '%</span>) = <b>' + fmtNum(Math.round(prelim.limitAmount)) + '</b>' +
+          (prelim.overLimit ? '<span class="badge-over">예정 한도초과</span>' : '') + '</div>' +
+          '<div class="calc-result-line">예정 공제가능세액 = <b>' + fmtNum(prelim.grossTax) + '</b></div>' +
+          '<div class="calc-result-line">예정신고 기공제액 = <b>' + fmtNum(priorCredit) + '</b>' +
+          (prelimOver
+            ? '<span class="badge-over">예정신고 과다공제 ' + fmtNum(priorCredit - prelim.grossTax) + '</span>'
+            : '<span class="badge-ok">적정</span>') + '</div>';
+      } else if (priorCredit > 0) {
+        html += '<div class="calc-result-line">예정신고 기공제액 = <b>' + fmtNum(priorCredit) + '</b> <span class="badge-skip">예정 과표·매입액 미입력 · 재계산 생략</span></div>';
+      }
+      html += '<div class="calc-result-line" style="margin-top:10px;">확정신고 반영액 = <b>' + fmtNum(r.tax) + '</b>' +
+        (r.netNegative ? '<span class="badge-over">예정 과다공제 · 확정신고 (−)조정</span>' : '') +
+        ' <span id="deemedStep2Badge"></span></div>';
+    }
     $('deemedResult').innerHTML = html;
     computeAndRenderR43Check();
     renderSummary();
@@ -2587,6 +2664,8 @@ function detectLedgerPeriod(rows) {
       '<p>판매대행 정리표 차이 발생 ' + agencyDiffCount + '건</p></div>';
     if (state.deemedResult) {
       html += '<div class="summary-block"><h3>의제매입세액</h3><p>' + fmtNum(state.deemedResult.tax) + '원' +
+        (state.deemedResult.priorCredit > 0 ? ' (예정 기공제 ' + fmtNum(state.deemedResult.priorCredit) + ' 차감 후)' : '') +
+        (state.deemedResult.netNegative ? ' <span class="badge-over">예정 과다공제 · (−)조정</span>' : '') +
         (state.deemedResult.overLimit ? ' (한도초과)' : '') + '</p></div>';
     }
     if (state.cardCreditResult) {
