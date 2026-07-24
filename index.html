@@ -2680,7 +2680,10 @@ function detectLedgerPeriod(rows) {
   $('btnPrint').addEventListener('click', function () { window.print(); });
 
   // v2.14: 인쇄 — 업체정보 헤더 채우기 + (옵션) 세부내역 전체 펼침. Ctrl+P도 beforeprint로 커버
+  var baseTitle = document.title;  // v2.16: PDF 저장 파일명 앞에 업체명 삽입용
   window.addEventListener('beforeprint', function () {
+    var company = $('companyName').value.trim();
+    document.title = company ? company + '_' + baseTitle : baseTitle;
     var parts = ['업체명: ' + ($('companyName').value || '(미입력)')];
     if ($('period').value) parts.push('과세기간: ' + $('period').value);
     parts.push('사업자유형: ' + $('bizType').value);
@@ -2700,6 +2703,7 @@ function detectLedgerPeriod(rows) {
     });
   });
   window.addEventListener('afterprint', function () {
+    document.title = baseTitle;
     document.body.classList.remove('print-expand');
     document.body.classList.remove('print-group-fold');
   });
