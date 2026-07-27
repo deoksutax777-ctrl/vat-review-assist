@@ -1131,7 +1131,12 @@ function detectLedgerPeriod(rows) {
     { key: 'r3', label: '(3) 과세 신용카드·현금영수증 발행분 공급가액', codes: [17, 22] },
     { key: 'r4', label: '(4) 과세 기타(정규영수증 외) 공급가액', codes: [14] },
     { key: 'r56', label: '(5)+(6) 영세율 합계 공급가액', codes: [12, 16] },
-    { key: 'r1012', label: '(10)+(12) 세금계산서수취분 일반+고정자산 공급가액', codes: [51, 52, 54, 55] },
+    // v2.17: 입력은 (10)/(12) 각각 별도 칸, 차이 검증은 두 입력값 합계 vs 장부 집계(기존과 동일, 코드상 일반/고정자산 구분 불가)
+    { key: 'r1012', label: '(10)+(12) 세금계산서수취분 일반+고정자산 공급가액', codes: [51, 52, 54, 55],
+      inputs: [
+        { key: 'r10', label: '(10) 세금계산서수취분 일반매입 공급가액' },
+        { key: 'r12', label: '(12) 세금계산서수취분 고정자산매입 공급가액' },
+      ] },
     { key: 'r4142', label: '(41)+(42) 신용카드매출전표등 수취 공급가액', codes: [57, 61] },
     { key: 'r50', label: '(50) 공제받지못할매입세액 해당 공급가액', codes: [54] },
   ];
@@ -1755,15 +1760,26 @@ function detectLedgerPeriod(rows) {
     var panel = $('reconInputPanel');
     var html = '';
     RECON_ITEMS.forEach(function (item) {
-      html += '<div class="field"><label for="' + item.key + '">' + escapeHtml(item.label) + '</label>' +
-        '<input type="text" id="' + item.key + '" placeholder="미입력 시 대사 제외"></div>';
+      if (item.inputs) {
+        item.inputs.forEach(function (sub) {
+          html += '<div class="field"><label for="' + sub.key + '">' + escapeHtml(sub.label) + '</label>' +
+            '<input type="text" id="' + sub.key + '" placeholder="미입력 시 대사 제외"></div>';
+        });
+      } else {
+        html += '<div class="field"><label for="' + item.key + '">' + escapeHtml(item.label) + '</label>' +
+          '<input type="text" id="' + item.key + '" placeholder="미입력 시 대사 제외"></div>';
+      }
     });
     html += '<div class="field"><label for="' + R43.key + '">' + escapeHtml(R43.label) + '</label>' +
       '<input type="text" id="' + R43.key + '" placeholder="장부 대응 없음 · 참고용">' +
       '<div id="r43CheckResult" class="note-text" style="margin-top:4px;"></div></div>';
     panel.innerHTML = html;
     RECON_ITEMS.concat([R43]).forEach(function (item) {
-      attachCommaInput($(item.key));
+      if (item.inputs) {
+        item.inputs.forEach(function (sub) { attachCommaInput($(sub.key)); });
+      } else {
+        attachCommaInput($(item.key));
+      }
     });
   }
 
@@ -1779,7 +1795,14 @@ function detectLedgerPeriod(rows) {
     var byType = state.ledger.byType;
     var results = RECON_ITEMS.map(function (item) {
       var ledgerSum = item.codes.reduce(function (s, c) { return s + (byType[c] ? byType[c].amount : 0); }, 0);
-      var inputVal = readInputNumber(item.key);
+      var inputVal;
+      if (item.inputs) {
+        var subVals = item.inputs.map(function (sub) { return readInputNumber(sub.key); });
+        var anyEntered = subVals.some(function (v) { return v !== null; });
+        inputVal = anyEntered ? subVals.reduce(function (s, v) { return s + (v || 0); }, 0) : null;
+      } else {
+        inputVal = readInputNumber(item.key);
+      }
       var diff = (inputVal === null) ? null : (inputVal - ledgerSum);
       return { label: item.label, input: inputVal, ledger: ledgerSum, diff: diff };
     });
