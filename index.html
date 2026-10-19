@@ -719,7 +719,8 @@ function parseHometaxAgency(text) {
 
   lines.forEach(function (line) {
     if (!line) return;
-    var cells = line.split('\t').map(function (c) {
+    // 탭이 없으면(공백 정렬 붙여넣기) 2칸 이상 공백으로 분할 — 업체명 내부 단일 공백은 보존
+    var cells = (line.indexOf('\t') === -1 ? line.split(/\s{2,}/) : line.split('\t')).map(function (c) {
       return (c === null || c === undefined) ? '' : String(c).trim();
     });
 
@@ -748,7 +749,7 @@ function parseHometaxAgency(text) {
     // 승인년월 셀 이후의 숫자 셀을 순서대로 건수/계/신용카드/기타결제수단으로
     var nums = [];
     for (var k = ymIdx + 1; k < cells.length; k++) {
-      var v = parseNumericCell(cells[k]);
+      var v = (cells[k] === '-') ? 0 : parseNumericCell(cells[k]); // 홈택스는 0을 '-'로 표시
       if (v !== null) nums.push(v);
     }
     if (nums.length < 4) { skipped++; return; }
