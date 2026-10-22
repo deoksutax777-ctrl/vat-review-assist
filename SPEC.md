@@ -455,3 +455,11 @@ v2.5의 확정=반기 전체 창(1/1~6/30, 7/1~12/31) 단일 옵션을, 법인�
 - Ctrl+P도 `beforeprint`/`afterprint` 이벤트로 동일하게 커버.
 - **거래처 묶은 채로 인쇄** (v2.14.1): 체크박스 `#chkPrintGroupFold`(디폴트 OFF, 전체 펼침 OFF 시 disabled). 체크 시 `body.print-group-fold` 추가 부여 → `body.print-expand.print-group-fold tr.vendor-child-row { display: none !important; }`(특정성 0,3,2 > 표시 규칙 0,2,2)가 자식 전표 행을 숨겨 **거래처 그룹 요약 행(n건·품목(n종)·합계)만 인쇄**. 화면에서 열어둔 자식 행(inline display:'')도 !important로 숨김. 1건 거래처는 일반 행이라 그대로 1줄 인쇄. 화면에서 [거래처 묶기 해제]한 유형은 그룹 행이 없어 전표 그대로 인쇄됨(화면 상태 따름).
 - 검증: scratchpad jsdom 하니스 `dom_print_test.cjs`(XLSX 전역 스텁 + fileInput change 주입, v2.10 방식) 29 assertion PASS — 헤더 채움·전체 렌더·원복·묶기 모드 클래스·disabled 연동·체크 OFF 분기·업로드 전 무에러·CSS 규칙 존재.
+
+## 19. v2.18 확장 — 결재자 특이사항 메모
+
+- 「결재 요약」 카드(`#summaryCard`) 안, 인쇄 버튼 위에 `#reviewerMemo` textarea(화면 전용 `no-print`) + `#printMemo`(`.print-only`, `white-space: pre-wrap`, 테두리 박스). textarea는 인쇄 시 잘리므로 텍스트 사본을 인쇄. 비어 있으면 `(특이사항 없음)` 출력.
+- 사본 동기화: `input` 이벤트 + `beforeprint`(Ctrl+P 커버).
+- 임시저장: localStorage 키 `vat2_memo:{업체명}|{과세기간}`. 업체명·과세기간 `change` 시 `loadMemo()` — 저장본이 있으면 복원, 없으면 입력 중이던 메모를 새 키로 옮겨 보존. 빈 메모는 키 삭제. localStorage 불가 환경은 try/catch로 무시(인쇄 정상).
+- 한계: 브라우저·기기별 저장(다른 PC와 공유 안 됨). 보관용은 인쇄/PDF 저장본이 원본.
+- 검증: scratchpad jsdom `memo_test.cjs` 7 PASS (초기 문구·동기화·키 이월·복원·삭제·beforeprint).

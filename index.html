@@ -169,6 +169,11 @@
 
   .print-only { display: none; }
   #printCompanyInfo { font-size: 14px; font-weight: 600; margin: 12px 0 2px; }
+  #reviewerMemo {
+    width: 100%; min-height: 120px; padding: 10px; border: 1px solid #D5D9E0; border-radius: 6px;
+    font-family: inherit; font-size: 13px; line-height: 1.6; resize: vertical;
+  }
+  #printMemo { white-space: pre-wrap; font-size: 13px; line-height: 1.6; border: 1px solid #999; padding: 8px 10px; min-height: 60px; }
   @media print {
     .no-print { display: none !important; }
     .print-only { display: block; }
@@ -467,6 +472,12 @@
   <section class="card" id="summaryCard" style="display:none;">
     <h2>결재 요약</h2>
     <div class="summary-card" id="summaryBody"></div>
+    <!-- v2.18: 결재자 특이사항 메모 (화면=입력란, 인쇄=#printMemo 사본) -->
+    <div class="summary-block" style="margin-top:16px;">
+      <h3>결재자 특이사항</h3>
+      <textarea id="reviewerMemo" class="no-print" placeholder="결재 시 확인한 특이사항을 메모하세요. 인쇄물에 함께 출력됩니다. (업체명+과세기간별로 이 브라우저에 자동 저장)"></textarea>
+      <div class="print-only" id="printMemo"></div>
+    </div>
     <div style="margin-top:16px;display:flex;align-items:center;gap:14px;" class="no-print">
       <button class="primary-btn" id="btnPrint">인쇄</button>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
@@ -2703,6 +2714,27 @@ function detectLedgerPeriod(rows) {
 
   $('btnPrint').addEventListener('click', function () { window.print(); });
 
+  // v2.18: 결재자 특이사항 메모 — 인쇄 사본(#printMemo) 동기화 + 업체명|과세기간 키로 localStorage 임시저장
+  function memoKey() { return 'vat2_memo:' + $('companyName').value.trim() + '|' + $('period').value; }
+  function syncPrintMemo() { $('printMemo').textContent = $('reviewerMemo').value.trim() || '(특이사항 없음)'; }
+  function saveMemo() {
+    try {
+      var v = $('reviewerMemo').value;
+      if (v.trim()) localStorage.setItem(memoKey(), v); else localStorage.removeItem(memoKey());
+    } catch (e) { /* 저장 불가 환경은 무시 — 인쇄는 정상 동작 */ }
+  }
+  function loadMemo() {  // 저장본이 없으면 입력 중인 메모를 새 키로 옮겨 보존
+    try {
+      var saved = localStorage.getItem(memoKey());
+      if (saved !== null) $('reviewerMemo').value = saved;
+    } catch (e) { /* 무시 */ }
+    syncPrintMemo();
+    saveMemo();
+  }
+  $('reviewerMemo').addEventListener('input', function () { syncPrintMemo(); saveMemo(); });
+  $('companyName').addEventListener('change', loadMemo);
+  $('period').addEventListener('change', loadMemo);
+
   // v2.14: 인쇄 — 업체정보 헤더 채우기 + (옵션) 세부내역 전체 펼침. Ctrl+P도 beforeprint로 커버
   var baseTitle = document.title;  // v2.16: PDF 저장 파일명 앞에 업체명 삽입용
   window.addEventListener('beforeprint', function () {
@@ -2714,6 +2746,7 @@ function detectLedgerPeriod(rows) {
     if ($('industry').value) parts.push('업종: ' + $('industry').value);
     if ($('hasExemptBiz').checked) parts.push('면세사업 겸영');
     $('printCompanyInfo').textContent = parts.join('  ·  ');
+    syncPrintMemo();
 
     if (!$('chkPrintExpand').checked || !state.ledger) return;
     document.body.classList.add('print-expand');
@@ -2742,6 +2775,7 @@ function detectLedgerPeriod(rows) {
 
   // ---- 초기화 ----
   initPeriodSelect();
+  loadMemo();
   renderSummary();
 })();
 </script>
